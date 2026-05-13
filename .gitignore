@@ -1,0 +1,17 @@
+# Never commit Google Cloud service account keys
+google_creds.json
+*credentials*.json
+*.pem
+
+# Jupyter
+.ipynb_checkpoints/
+
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+.env
+
+# OS
+.DS_Store
