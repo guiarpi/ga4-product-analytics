@@ -1,0 +1,503 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GA4 Funnel Analysis — Product Dashboard</title>
+<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<style>
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+         background: #f4f5f7; color: #111827; line-height: 1.6; font-size: 15px; }
+
+  /* Header */
+  .page-header { background: linear-gradient(135deg, #0f172a 0%, #1e3a5f 100%);
+                  color: white; padding: 40px 48px 32px; }
+  .page-header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.4px; }
+  .page-header .subtitle { margin-top: 6px; font-size: 0.85rem; opacity: 0.65;
+                             display: flex; gap: 20px; flex-wrap: wrap; }
+  .page-header .subtitle span::before { content: "· "; }
+  .page-header .subtitle span:first-child::before { content: ""; }
+
+  /* Layout */
+  .container { max-width: 1180px; margin: 0 auto; padding: 36px 24px 60px; }
+  .section-label { font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+                    letter-spacing: 1.2px; color: #6b7280; margin: 40px 0 14px; }
+  .section-label:first-of-type { margin-top: 0; }
+
+  /* Cards */
+  .card { background: white; border-radius: 12px; padding: 28px 32px;
+           box-shadow: 0 1px 3px rgba(0,0,0,.08), 0 1px 8px rgba(0,0,0,.04);
+           margin-bottom: 20px; }
+
+  /* Executive summary */
+  .exec-card { background: white; border-radius: 12px; padding: 32px;
+               box-shadow: 0 1px 3px rgba(0,0,0,.08); margin-bottom: 20px;
+               border-left: 5px solid #dc2626; }
+  .exec-card .priority-tag {
+    display: inline-block; background: #dc262618;
+    color: #dc2626; font-size: 0.7rem; font-weight: 700;
+    text-transform: uppercase; letter-spacing: 0.8px;
+    padding: 4px 12px; border-radius: 20px; margin-bottom: 14px;
+  }
+  .exec-card p { font-size: 1.05rem; color: #1f2937; line-height: 1.75; }
+
+  /* KPI grid */
+  .kpi-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+               gap: 16px; margin-bottom: 20px; }
+  .kpi { background: white; border-radius: 12px; padding: 22px 24px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); border-top: 3px solid #4C78A8; }
+  .kpi.warn { border-top-color: #ea580c; }
+  .kpi-label { font-size: 0.72rem; color: #6b7280; text-transform: uppercase;
+                letter-spacing: 0.7px; font-weight: 600; margin-bottom: 6px; }
+  .kpi-value { font-size: 2.1rem; font-weight: 800; color: #111827; line-height: 1.1; }
+  .kpi-sub   { font-size: 0.73rem; color: #9ca3af; margin-top: 5px; }
+
+  /* Key findings */
+  .findings-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(260px, 1fr));
+                    gap: 16px; margin-bottom: 20px; }
+  .finding { background: white; border-radius: 12px; padding: 24px;
+              box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .finding-num { font-size: 0.7rem; font-weight: 700; text-transform: uppercase;
+                  letter-spacing: 0.8px; color: #9ca3af; margin-bottom: 8px; }
+  .finding-stat { font-size: 2rem; font-weight: 800; line-height: 1;
+                   margin-bottom: 10px; }
+  .finding-stat.red { color: #dc2626; }
+  .finding-stat.amber { color: #ea580c; }
+  .finding-stat.blue { color: #2563eb; }
+  .finding-stat.green { color: #16a34a; }
+  .finding-title { font-size: 0.9rem; font-weight: 600; color: #111827; margin-bottom: 6px; }
+  .finding-body  { font-size: 0.83rem; color: #4b5563; line-height: 1.6; }
+
+  /* Chart + insight side-by-side */
+  .chart-insight { display: grid; grid-template-columns: 2fr 1fr; gap: 24px;
+                    align-items: start; }
+  .chart-insight.flip { grid-template-columns: 1fr 2fr; }
+  @media (max-width: 860px) {
+    .chart-insight, .chart-insight.flip { grid-template-columns: 1fr; }
+  }
+  .insight-panel { background: #f8fafc; border-radius: 10px; padding: 22px 24px; }
+  .insight-panel h4 { font-size: 0.8rem; font-weight: 700; text-transform: uppercase;
+                       letter-spacing: 0.8px; color: #6b7280; margin-bottom: 12px; }
+  .insight-panel p { font-size: 0.85rem; color: #374151; margin-bottom: 10px; line-height: 1.65; }
+  .insight-panel p:last-child { margin-bottom: 0; }
+  .insight-panel strong { color: #111827; }
+
+  /* Opportunity box */
+  .opportunity { background: #eff6ff; border: 1px solid #bfdbfe;
+                  border-radius: 10px; padding: 20px 24px; margin-top: 16px; }
+  .opportunity h4 { font-size: 0.78rem; font-weight: 700; text-transform: uppercase;
+                     letter-spacing: 0.8px; color: #1d4ed8; margin-bottom: 10px; }
+  .opportunity p { font-size: 0.84rem; color: #1e40af; line-height: 1.6; }
+  .opportunity .big-number { font-size: 1.5rem; font-weight: 800;
+                               color: #1d4ed8; display: block; margin: 4px 0; }
+
+  /* Recommendations */
+  .rec-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+               gap: 16px; }
+  .rec { background: white; border-radius: 12px; padding: 24px;
+          box-shadow: 0 1px 3px rgba(0,0,0,.08); }
+  .rec-priority { font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
+                   letter-spacing: 0.8px; padding: 3px 10px; border-radius: 12px;
+                   display: inline-block; margin-bottom: 14px; }
+  .rec-priority.p1 { background: #fef2f2; color: #dc2626; }
+  .rec-priority.p2 { background: #fff7ed; color: #ea580c; }
+  .rec-priority.p3 { background: #f0fdf4; color: #16a34a; }
+  .rec h4 { font-size: 0.95rem; font-weight: 700; color: #111827; margin-bottom: 8px; }
+  .rec p  { font-size: 0.83rem; color: #4b5563; line-height: 1.65; margin-bottom: 8px; }
+  .rec .metric { font-size: 0.78rem; font-weight: 600; color: #6b7280;
+                  border-top: 1px solid #f3f4f6; padding-top: 10px; margin-top: 4px; }
+  .rec .metric::before { content: "📊 Watch: "; }
+
+  /* SaaS translation table */
+  .saas-table { width: 100%; border-collapse: collapse; font-size: 0.85rem; }
+  .saas-table th { background: #f8fafc; padding: 10px 16px; text-align: left;
+                    font-size: 0.72rem; text-transform: uppercase; letter-spacing: 0.8px;
+                    color: #6b7280; font-weight: 600; border-bottom: 2px solid #e5e7eb; }
+  .saas-table td { padding: 12px 16px; border-bottom: 1px solid #f3f4f6;
+                    color: #374151; vertical-align: top; }
+  .saas-table tr:last-child td { border-bottom: none; }
+  .saas-table td:first-child { font-weight: 600; color: #111827; width: 22%; }
+  .saas-table .rate { font-size: 0.78rem; color: #6b7280; }
+
+  /* AI brief */
+  .ai-badge { background: linear-gradient(135deg, #7c3aed, #4f46e5); color: white;
+               font-size: 0.65rem; font-weight: 700; padding: 3px 10px;
+               border-radius: 20px; letter-spacing: 0.5px; margin-right: 8px; }
+  .brief-body h3 { font-size: 1rem; font-weight: 700; color: #111827;
+                   margin: 20px 0 8px; padding-top: 16px;
+                   border-top: 1px solid #f3f4f6; }
+  .brief-body h3:first-child { border-top: none; padding-top: 0; margin-top: 0; }
+  .brief-body p  { font-size: 0.87rem; color: #374151; margin-bottom: 10px;
+                   line-height: 1.7; }
+  .brief-body li { font-size: 0.87rem; color: #374151; margin: 5px 0 5px 20px;
+                   line-height: 1.65; }
+  .brief-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+
+  /* Two-col utility */
+  .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
+  @media (max-width: 720px) { .two-col { grid-template-columns: 1fr; } }
+
+  /* Footer */
+  .footer { border-top: 1px solid #e5e7eb; margin-top: 48px; padding-top: 24px;
+             font-size: 0.76rem; color: #9ca3af; line-height: 1.9; }
+  .footer strong { color: #6b7280; }
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>GA4 E-Commerce — Product Funnel Analysis</h1>
+  <div class="subtitle">
+    <span>Session-scoped · Sequential conversion</span>
+    <span>Nov 2020 – Jan 2021</span>
+    <span>GA4 public e-commerce sample · BigQuery</span>
+    <span>Generated 2026-05-22</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ── Executive Summary ───────────────────────────────────────────────── -->
+  <p class="section-label">Executive Summary</p>
+  <div class="exec-card">
+    <div class="priority-tag">Primary bottleneck: Top-of-Funnel: Product Discovery</div>
+    <p>Of 354,857 sessions analysed across Nov 2020–Jan 2021, only <strong>0.8%</strong> completed a purchase. The significant bottleneck is <strong>product discovery</strong>: just <strong>21%</strong> of sessions ever reached a product page — meaning the majority of traffic was lost before the buying experience even began. Once users did view a product, checkout conversion was comparatively stronger, suggesting the site's core problem is getting users to products, not the purchase flow itself.</p>
+  </div>
+
+  <!-- ── KPIs ───────────────────────────────────────────────────────────── -->
+  <p class="section-label">Key Metrics · Nov 2020 – Jan 2021</p>
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Total Sessions</div>
+      <div class="kpi-value">354,857</div>
+      <div class="kpi-sub">unique session-start events</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Session → Purchase</div>
+      <div class="kpi-value">0.80%</div>
+      <div class="kpi-sub">end-to-end conversion rate</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Avg Order Value</div>
+      <div class="kpi-value">$79</div>
+      <div class="kpi-sub">median $55 · 2,721 orders</div>
+    </div>
+    <div class="kpi warn">
+      <div class="kpi-label">Week-1 Retention ⚠️</div>
+      <div class="kpi-value">4.4%</div>
+      <div class="kpi-sub">⚠ below 10% benchmark</div>
+    </div>
+  </div>
+
+  <!-- ── Key Findings ───────────────────────────────────────────────────── -->
+  <p class="section-label">Key Findings</p>
+  <div class="findings-grid">
+
+    <div class="finding">
+      <div class="finding-num">Finding 01 · Biggest drop</div>
+      <div class="finding-stat red">21%</div>
+      <div class="finding-title">of sessions ever view a product</div>
+      <div class="finding-body">
+        <strong>79%</strong> of sessions — that's
+        <strong>279,596 visits</strong> — leave
+        without ever reaching a product page. This is the single largest loss
+        in the funnel and the highest-leverage opportunity. In a SaaS context,
+        this maps to users who log in but never navigate to a core feature.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 02 · Once engaged, buyers are decisive</div>
+      <div class="finding-stat blue">20%</div>
+      <div class="finding-title">of product viewers add to cart</div>
+      <div class="finding-body">
+        When users do reach a product page, <strong>20%</strong>
+        add to cart — compared to just <strong>19.8%</strong>
+        of all sessions. The gap between these two numbers is the discovery
+        problem. The product detail page itself is not the bottleneck.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 03 · Conversion is fast</div>
+      <div class="finding-stat green">0.3h</div>
+      <div class="finding-title">median session-to-purchase time</div>
+      <div class="finding-body">
+        Purchasing sessions complete the full journey in
+        <strong>0.3 hours</strong> at the median.
+        This indicates low deliberation friction — users who intend to buy,
+        buy quickly. No urgent need to invest in cart-abandonment recovery flows.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 04 · Retention is the second problem</div>
+      <div class="finding-stat amber">4.4%</div>
+      <div class="finding-title">Week-1 return rate</div>
+      <div class="finding-body">
+        Only <strong>4.4%</strong> of users return in the week after
+        their first session — well below the ~20% benchmark for healthy
+        e-commerce cohorts. Acquisition campaigns may be driving
+        low-intent traffic, or there is no post-visit re-engagement in place.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 05 · Device is not the lever</div>
+      <div class="finding-stat blue">0.1pp</div>
+      <div class="finding-title">gap between mobile and other devices</div>
+      <div class="finding-body">
+        Purchase conversion rates differ by only <strong>0.1 percentage
+        points</strong> across devices. Mobile checkout UX is not a meaningful
+        driver of lost revenue here. Optimisation effort should focus on
+        discovery and retention, not device-specific checkout flows.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 06 · Revenue concentration</div>
+      <div class="finding-stat green">$79</div>
+      <div class="finding-title">avg order value ($55 median)</div>
+      <div class="finding-body">
+        The gap between mean ($79) and median ($55)
+        suggests some high-value orders are pulling the average up. Total
+        revenue in the window: <strong>$193,678</strong> from
+        <strong>2,721 purchasing sessions</strong>.
+        Segmenting high-value users by acquisition channel could reveal
+        which traffic sources drive disproportionate revenue.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Funnel + insight ────────────────────────────────────────────────── -->
+  <p class="section-label">Conversion Funnel — Session-Scoped · Sequential</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div><div>                            <div id="chart-funnel" class="plotly-graph-div" style="height:400px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-funnel")) {                    Plotly.newPlot(                        "chart-funnel",                        [{"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSessions: %{x:,}\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#2c5282","#4C78A8","#4C78A8","#4C78A8","#4C78A8"]},"orientation":"h","text":["354,857","75,261","14,870","5,205","2,721"],"textfont":{"color":"white","size":12},"textposition":"inside","x":{"dtype":"i4","bdata":"KWoFAP0lAQAWOgAAVRQAAKEKAAA="},"y":["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"annotations":[{"font":{"color":"#dc2626","size":11},"showarrow":false,"text":"  \u2193 78.8% drop  (21.2% pass)","x":75261,"xanchor":"left","y":"View Item"},{"font":{"color":"#dc2626","size":11},"showarrow":false,"text":"  \u2193 80.2% drop  (19.8% pass)","x":14870,"xanchor":"left","y":"Add to Cart"},{"font":{"color":"#dc2626","size":11},"showarrow":false,"text":"  \u2193 65.0% drop  (35.0% pass)","x":5205,"xanchor":"left","y":"Begin Checkout"},{"font":{"color":"#dc2626","size":11},"showarrow":false,"text":"  \u2193 47.7% drop  (52.3% pass)","x":2721,"xanchor":"left","y":"Purchase"}],"margin":{"l":130,"r":220,"t":20,"b":20},"xaxis":{"showgrid":true,"gridcolor":"#f0f0f0","zeroline":false},"yaxis":{"categoryorder":"array","categoryarray":["Purchase","Begin Checkout","Add to Cart","View Item","Session Start"]},"height":400,"paper_bgcolor":"white","plot_bgcolor":"white","showlegend":false},                        {"responsive": true}                    )                };            </script>        </div></div>
+      <div>
+        <div class="insight-panel">
+          <h4>What this shows</h4>
+          <p>Each session is counted at a step only if it completed all prior steps
+          <em>in order within the same session</em> — matching how GA4 UI
+          calculates funnel conversion.</p>
+          <p>The <strong>largest absolute loss</strong> is at
+          <strong>Session Start</strong>:
+          279,596 sessions dropped here.</p>
+          <p>The step-over-step rates after View Item are comparatively
+          healthy — the problem is upstream, not in the checkout flow.</p>
+        </div>
+        <div class="opportunity">
+          <h4>Revenue opportunity</h4>
+          <p>If session → view_item improves by just <strong>5 percentage points</strong>:</p>
+          <span class="big-number">~8 extra orders</span>
+          <p>~<strong>$630</strong> additional revenue
+          (at current AOV of $79)</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Device + time-to-convert ───────────────────────────────────────── -->
+  <p class="section-label">Device Breakdown & Time-to-Convert</p>
+  <div class="two-col">
+    <div class="card">
+      <div>                            <div id="chart-device" class="plotly-graph-div" style="height:360px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-device")) {                    Plotly.newPlot(                        "chart-device",                        [{"alignmentgroup":"True","hovertemplate":"Device=desktop\u003cbr\u003e=%{x}\u003cbr\u003e% of Sessions=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"desktop","marker":{"color":"#4C78A8","pattern":{"shape":""}},"name":"desktop","offsetgroup":"desktop","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAAWUBI4XoUrkc1QLgehetRuBBAMzMzMzMz9z8AAAAAAADoPw=="},"textposition":"outside","x":["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAAWUBI4XoUrkc1QLgehetRuBBAMzMzMzMz9z8AAAAAAADoPw=="},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"},{"alignmentgroup":"True","hovertemplate":"Device=mobile\u003cbr\u003e=%{x}\u003cbr\u003e% of Sessions=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"mobile","marker":{"color":"#F58518","pattern":{"shape":""}},"name":"mobile","offsetgroup":"mobile","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAAWUAfhetRuB41QOF6FK5H4RBA16NwPQrX9z+amZmZmZnpPw=="},"textposition":"outside","x":["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAAWUAfhetRuB41QOF6FK5H4RBA16NwPQrX9z+amZmZmZnpPw=="},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"},{"alignmentgroup":"True","hovertemplate":"Device=tablet\u003cbr\u003e=%{x}\u003cbr\u003e% of Sessions=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"tablet","marker":{"color":"#54A24B","pattern":{"shape":""}},"name":"tablet","offsetgroup":"tablet","orientation":"v","showlegend":true,"text":{"dtype":"f8","bdata":"AAAAAAAAWUAK16NwPQo1QArXo3A9ChBAuB6F61G49j+kcD0K16PoPw=="},"textposition":"outside","x":["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"],"xaxis":"x","y":{"dtype":"f8","bdata":"AAAAAAAAWUAK16NwPQo1QArXo3A9ChBAuB6F61G49j+kcD0K16PoPw=="},"yaxis":"y","type":"bar","texttemplate":"%{text:.1f}%"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":""},"tickangle":-15},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"% of Sessions"}},"legend":{"title":{"text":"Device"},"tracegroupgap":0,"orientation":"h","yanchor":"bottom","y":1.02},"margin":{"t":20,"b":10},"barmode":"group","height":360,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div>
+      <div class="insight-panel" style="margin-top:16px">
+        <h4>Conclusion</h4>
+        <p>Purchase rates are within <strong>0.1pp</strong> across
+        all device types. Device-specific checkout optimisation is
+        <strong>not a priority</strong>. The funnel problem is consistent
+        regardless of how users access the site.</p>
+      </div>
+    </div>
+    <div class="card">
+      <div>                            <div id="chart-ttc" class="plotly-graph-div" style="height:340px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-ttc")) {                    Plotly.newPlot(                        "chart-ttc",                        [{"hovertemplate":"=%{x}\u003cbr\u003eMedian hours=%{marker.color}\u003cbr\u003etext=%{text}\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"","marker":{"color":{"dtype":"f8","bdata":"exSuR+F6lD8AAAAAAAAAAClcj8L1KLw\u002fuB6F61G4rj8="},"coloraxis":"coloraxis","pattern":{"shape":""}},"name":"","orientation":"v","showlegend":false,"text":["0.02h","0.00h","0.11h","0.06h"],"textposition":"outside","x":["Session\u2192View","View\u2192Cart","Cart\u2192Checkout","Checkout\u2192Purchase"],"xaxis":"x","y":{"dtype":"f8","bdata":"exSuR+F6lD8AAAAAAAAAAClcj8L1KLw\u002fuB6F61G4rj8="},"yaxis":"y","type":"bar","texttemplate":"%{text}"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":""}},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Median hours"}},"coloraxis":{"colorbar":{"title":{"text":"Median hours"}},"colorscale":[[0.0,"rgb(247,251,255)"],[0.125,"rgb(222,235,247)"],[0.25,"rgb(198,219,239)"],[0.375,"rgb(158,202,225)"],[0.5,"rgb(107,174,214)"],[0.625,"rgb(66,146,198)"],[0.75,"rgb(33,113,181)"],[0.875,"rgb(8,81,156)"],[1.0,"rgb(8,48,107)"]],"showscale":false},"legend":{"tracegroupgap":0},"margin":{"t":20,"b":10},"barmode":"relative","height":340,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div>
+      <div class="insight-panel" style="margin-top:16px">
+        <h4>Conclusion</h4>
+        <p>Converting sessions complete the journey in
+        <strong>0.3 hours</strong> (median).
+        The checkout → purchase step is near-instant, indicating
+        no meaningful payment friction for users who reach this stage.</p>
+        <p>Cart abandonment flows and checkout UX are lower priority
+        than driving more users to product pages in the first place.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Cohort retention ────────────────────────────────────────────────── -->
+  <p class="section-label">Weekly Cohort Retention</p>
+  <div class="card">
+    <div class="chart-insight flip">
+      <div class="insight-panel">
+        <h4>What this shows</h4>
+        <p>Each row is a group of users who had their <em>first ever session</em>
+        in that week. The cells show what % of them returned in each
+        subsequent week.</p>
+        <p>Avg Week-1 return: <strong>4.4%</strong><br>
+        Avg Week-2 return: <strong>1.7%</strong></p>
+        <h4 style="margin-top:16px">What this means</h4>
+        <p>Week-1 retention of <strong>4.4%</strong> is
+        significantly below the ~20% benchmark.
+        Most users who visit once do not come back.</p>
+        <p><strong>Likely causes:</strong> no triggered email or push
+        re-engagement, traffic from low-intent channels, or a first
+        session that didn't reach a product.</p>
+        <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
+        the % of activated users who return within 7 days. The intervention
+        is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
+      </div>
+      <div><div>                            <div id="chart-cohort" class="plotly-graph-div" style="height:440px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-cohort")) {                    Plotly.newPlot(                        "chart-cohort",                        [{"colorscale":[[0.0,"rgb(247,251,255)"],[0.125,"rgb(222,235,247)"],[0.25,"rgb(198,219,239)"],[0.375,"rgb(158,202,225)"],[0.5,"rgb(107,174,214)"],[0.625,"rgb(66,146,198)"],[0.75,"rgb(33,113,181)"],[0.875,"rgb(8,81,156)"],[1.0,"rgb(8,48,107)"]],"reversescale":true,"text":[["100%","11%","4%","2%","1%","1%","1%","0%","1%","0%","0%","0%","0%","0%"],["100%","6%","3%","2%","2%","2%","1%","1%","0%","1%","0%","0%","0%","0%"],["100%","7%","3%","3%","2%","2%","1%","0%","1%","0%","0%","0%","0%","0%"],["100%","6%","3%","2%","2%","1%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","5%","2%","2%","1%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","5%","2%","1%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","3%","1%","1%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","3%","1%","1%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","2%","1%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","2%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","3%","1%","1%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","4%","1%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","4%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%"],["100%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%","0%"]],"texttemplate":"%{text}","x":["Week 0","Week 1","Week 2","Week 3","Week 4","Week 5","Week 6","Week 7","Week 8","Week 9","Week 10","Week 11","Week 12","Week 13"],"y":["2020-10-26","2020-11-02","2020-11-09","2020-11-16","2020-11-23","2020-11-30","2020-12-07","2020-12-14","2020-12-21","2020-12-28","2021-01-04","2021-01-11","2021-01-18","2021-01-25"],"z":[[100.0,10.7,3.5,2.4,1.3,1.0,0.9,0.2,0.6,0.2,0.4,0.3,0.3,0.3],[100.0,6.2,3.4,2.3,2.3,1.9,1.3,0.6,0.4,0.7,0.5,0.4,0.4,0.0],[100.0,6.7,3.0,2.6,2.4,1.5,0.8,0.4,0.6,0.5,0.5,0.4,0.0,0.0],[100.0,5.7,3.3,2.4,1.8,0.7,0.4,0.5,0.5,0.4,0.3,0.0,0.0,0.0],[100.0,5.0,2.5,1.5,0.7,0.4,0.5,0.5,0.4,0.3,0.0,0.0,0.0,0.0],[100.0,5.3,2.2,0.9,0.6,0.7,0.5,0.4,0.4,0.0,0.0,0.0,0.0,0.0],[100.0,3.3,0.9,0.7,1.0,0.6,0.4,0.4,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,2.9,0.9,1.2,0.9,0.6,0.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,2.5,1.1,1.0,0.6,0.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,2.4,0.9,0.6,0.5,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,3.1,1.2,0.8,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,3.6,1.4,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,4.1,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0],[100.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0,0.0]],"zmax":100,"zmin":0,"type":"heatmap"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"yaxis":{"title":{"text":"Cohort Week"},"autorange":"reversed"},"margin":{"t":20},"xaxis":{"title":{"text":"Weeks Since First Session"}},"height":440,"paper_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
+    </div>
+  </div>
+
+  <!-- ── Recommendations ────────────────────────────────────────────────── -->
+  <p class="section-label">Recommendations — Prioritised by Impact</p>
+  <div class="rec-grid">
+
+    <div class="rec">
+      <span class="rec-priority p1">Priority 1 · Immediate</span>
+      <h4>Fix product discovery — get users to product pages</h4>
+      <p>79% of sessions never reach a product page.
+      Audit the homepage and category navigation: are products surfaced
+      above the fold? Test a personalised "recommended for you" module
+      on the landing page. Instrument clicks on navigation elements to
+      identify which paths lead to product views.</p>
+      <p>In a SaaS context: this is the equivalent of users who log in
+      but never navigate to a core feature — fix the empty state or
+      improve the onboarding flow.</p>
+      <div class="metric">session → view_item rate (target: &gt;30%)</div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p2">Priority 2 · Short-term</span>
+      <h4>Build a re-engagement lifecycle for new users</h4>
+      <p>Week-1 retention of 4.4% means most acquired users
+      are one-and-done. Launch a triggered email or push sequence:
+      Day 1 (product browsed but not purchased), Day 3 (cart abandonment),
+      Day 7 (win-back). Measure impact on Week-1 and Week-2 return rates
+      separately per cohort.</p>
+      <div class="metric">Week-1 cohort retention rate (target: &gt;15%)</div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p3">Priority 3 · Investigate</span>
+      <h4>Segment by traffic source to find high-quality acquisition</h4>
+      <p>Total revenue of $193,678 comes from 2,721
+      sessions. The mean/median AOV gap suggests a small segment of
+      high-value buyers. Break down session → purchase conversion and
+      AOV by <code>traffic_source.medium</code> to identify which
+      channels drive purchasers vs browsers — then reallocate acquisition
+      budget accordingly.</p>
+      <div class="metric">revenue per session by traffic source</div>
+    </div>
+
+  </div>
+
+  <!-- ── B2B SaaS translation ────────────────────────────────────────────── -->
+  <p class="section-label">Methodology Transfer — How This Applies to B2B SaaS</p>
+  <div class="card">
+    <p style="font-size:0.87rem;color:#4b5563;margin-bottom:20px;line-height:1.7">
+      This analysis uses GA4 e-commerce events as the data source, but the SQL patterns,
+      funnel logic, and retention methodology are directly transferable to any
+      event-based product analytics dataset — including B2B SaaS products.
+    </p>
+    <table class="saas-table">
+      <thead>
+        <tr>
+          <th>E-Commerce Event</th>
+          <th>B2B SaaS Equivalent</th>
+          <th>Metric</th>
+          <th>This Analysis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>session_start</td>
+          <td>User login / app open</td>
+          <td>DAU / session volume</td>
+          <td class="rate">354,857 sessions</td>
+        </tr>
+        <tr>
+          <td>view_item</td>
+          <td>Feature discovery — navigating to a core feature</td>
+          <td>Feature reach rate</td>
+          <td class="rate">21.2% of sessions</td>
+        </tr>
+        <tr>
+          <td>add_to_cart</td>
+          <td>Feature first use — attempting the core action</td>
+          <td>Activation attempt rate</td>
+          <td class="rate">19.7% of product viewers</td>
+        </tr>
+        <tr>
+          <td>begin_checkout</td>
+          <td>Core workflow initiated — e.g. creating first record</td>
+          <td>Workflow start rate</td>
+          <td class="rate">35.0% step-over-step</td>
+        </tr>
+        <tr>
+          <td>purchase</td>
+          <td>Activation — completing the key value moment</td>
+          <td>Activation rate</td>
+          <td class="rate">0.80% of all sessions</td>
+        </tr>
+        <tr>
+          <td>Week-1 retention</td>
+          <td>D7 retention — returning within 7 days of first login</td>
+          <td>Early retention</td>
+          <td class="rate">4.4% avg across cohorts</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  
+
+
+  <!-- AI Product Brief -->
+  <p class="section-label">AI-Generated Product Brief
+    <span class="ai-badge">Claude</span></p>
+  <div class="card">
+    <div class="brief-body"><h3>Executive Summary</h3>
+<p>Only 0.80% of sessions reach a purchase — but the data shows the problem is almost entirely top-of-funnel: 78.8% of sessions never reach a product page. Users who do discover a product and proceed to checkout convert at a respectable 52% from checkout to purchase, with a median end-to-end journey of 18 minutes and no meaningful device-based friction. The core opportunity is not fixing checkout — it is getting more sessions to encounter the product.</p>
+<h3>Key Findings</h3>
+<li><strong>78.8% of sessions never view a product (354,857 → 75,261).</strong> The largest single drop in the funnel happens before any product interaction. This points to a navigation, discovery, or intent-matching problem — not a product or checkout problem. In B2B SaaS terms, this maps to users who log in but never reach a core feature.</li>
+<li><strong>Of users who do see a product, 80.2% don't add it to cart (75,261 → 14,870).</strong> Even among sessions with product intent, the majority don't act. This is the second-largest drop and suggests product pages are not converting interest into intent — likely a pricing, content, or trust issue.</li>
+<li><strong>Shoppers-funnel conversion is 4.4% — well below the 10% e-commerce benchmark.</strong> When the funnel is scoped to sessions that viewed a product (eliminating unengaged traffic), conversion is still below industry norms. This confirms there is a mid-funnel problem on product pages, not just a traffic quality problem.</li>
+<li><strong>Once users reach checkout, 52.3% complete the purchase in under 6 minutes.</strong> The checkout flow is working. The median time from checkout initiation to purchase is 0.06 hours — there is no payment friction for users who reach this stage. Optimising checkout would be wasted effort.</li>
+<li><strong>Purchase rates are within 0.1pp across desktop, mobile, and tablet.</strong> Device type does not explain conversion differences. A mobile-first redesign or device-specific A/B test would not address the core drop-off problem. The funnel leaks uniformly regardless of how users access the site.</li>
+<h3>Hypotheses</h3>
+<li><strong>[HIGH confidence] The homepage or entry experience fails to surface relevant products.</strong> The 78.8% top-of-funnel drop is consistent with poor discovery design — users arrive but don't find a path to a product page. Strong navigation, featured categories, or personalised recommendations would directly attack this drop. The data strongly supports this as the primary lever.</li>
+<li><strong>[MEDIUM confidence] Product pages lack sufficient trust or decision-making information.</strong> The 80.2% drop from view to add-to-cart suggests that users who find a product are not convinced to act. Likely causes: insufficient reviews, unclear pricing, weak product descriptions, or no urgency signals. This hypothesis is supported by the data but needs qualitative research (session recordings, heatmaps) to confirm.</li>
+<li><strong>[LOW confidence] The 4.4% shoppers-funnel rate reflects a seasonal or campaign-specific traffic mix.</strong> The dataset covers Nov 2020 – Jan 2021, which includes Black Friday and holiday peak. High-volume, low-intent promotional traffic could inflate total sessions while suppressing conversion rates. This would mean the "real" engaged-traffic conversion is higher than it appears — but cannot be confirmed without traffic-source segmentation.</li>
+<h3>Recommended Actions</h3>
+<li><strong>Redesign the product discovery path — test a category-forward homepage.</strong> Instrument and A/B test a homepage variant that leads users to product categories within two clicks. Watch: `view_item` rate (target: increase from 21.2% toward 35%+) and overall conversion. This is the highest-leverage change available.</li>
+<li><strong>Run a product-page content audit and test social proof additions.</strong> Audit the 10 highest-traffic product pages with lowest view-to-cart rates. Add or improve review counts, ratings, and scarcity signals. Watch: `add_to_cart` rate from `view_item` sessions (current: 19.8%). Even a 5pp improvement here would materially lift end-to-end conversion.</li>
+<li><strong>Segment the funnel by traffic source (organic, paid, direct, email).</strong> The current analysis treats all sessions equally. Paid traffic likely has different intent profiles than organic. Segmenting by `traffic_source.medium` would reveal whether the top-of-funnel problem is a traffic quality issue or a site design issue — and inform where to direct budget. Watch: funnel conversion by channel vs. CAC by channel.</li>
+<h3>What to Measure Next</h3>
+<li><strong>Traffic source × funnel step cross-tab.</strong> Does the 78.8% product-page miss rate vary by acquisition channel? If paid traffic has a 90% miss rate but organic has a 60% miss rate, the problem is ad targeting — not navigation. This single query would reprioritise the entire action list.</li>
+<li><strong>Session recording analysis on product pages with >500 views and <15% add-to-cart rate.</strong> Quantitative data shows where users drop; session recordings show why. Identifying the top 10 underperforming product pages and reviewing recordings would generate concrete, actionable hypotheses for the content audit in under a week.</li>
+<li><strong>Return-visitor vs. new-visitor funnel comparison.</strong> The cohort retention data shows some users return across weeks. Do return visitors convert at a materially higher rate? If yes, the product has retention value and the focus should be on bringing new users back (email, retargeting). If not, the product-page problem affects even motivated users.</li>
+<hr>
+<p><em>⚠ Validation note: This analysis uses a public GA4 e-commerce sample dataset. All findings should be validated on production data before informing product roadmap decisions. The funnel methodology (session-scoped, sequential timestamp constraint) is directly transferable to B2B SaaS event streams.</em></p></div>
+  </div>
+  
+    <!-- Footer -->
+  <div class="footer">
+    <strong>Methodology</strong><br>
+    Session-scoped funnel: each row is a unique (user_pseudo_id, ga_session_id) pair extracted
+    from event_params. Sequential constraint: a session is counted at step N only if it reached
+    step N−1 first within the same session. This matches GA4 UI funnel behaviour and avoids
+    inflating conversion by attributing past-purchase behaviour to new sessions.<br><br>
+    <strong>Data note</strong><br>
+    Source: Google's public obfuscated GA4 e-commerce sample dataset.
+    Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention
+    methodology are valid. The same SQL applies directly to any GA4 BigQuery export.<br><br>
+    Python 3.13.13 · Plotly 6.7.0
+  </div>
+
+</div>
+</body>
+</html>
