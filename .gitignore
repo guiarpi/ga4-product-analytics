@@ -13,5 +13,9 @@ __pycache__/
 venv/
 .env
 
+# IDE / tool config
+.claude/
+.vscode/
+
 # OS
 .DS_Store
