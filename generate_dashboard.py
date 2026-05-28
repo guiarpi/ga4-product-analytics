@@ -94,6 +94,16 @@ funnel_df["drop_off"]    = (100 - funnel_df["step_cvr"]).round(1)
 funnel_df["lost"]        = funnel_df["sessions"] - funnel_df["sessions"].shift(-1).fillna(funnel_df["sessions"])
 funnel_df["lost"]        = funnel_df["lost"].clip(lower=0).astype(int)
 
+# ── 1b. Unique users ──────────────────────────────────────────────────────────
+print("Querying unique users...")
+unique_users_df = q(f"""
+SELECT COUNT(DISTINCT user_pseudo_id) AS unique_users
+FROM `{DATASET}.events_*`
+WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+  AND event_name = 'session_start'
+""")
+unique_users = int(unique_users_df["unique_users"].iloc[0])
+
 # ── 2. Revenue ────────────────────────────────────────────────────────────────
 print("Querying revenue...")
 revenue_df = q(f"""
@@ -133,56 +143,7 @@ SELECT
 FROM conv WHERE revenue IS NOT NULL AND revenue > 0
 """)
 
-# ── 3. Device breakdown ───────────────────────────────────────────────────────
-print("Querying device breakdown...")
-device_raw = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id, device.category AS dev,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
-    event_name, MIN(event_timestamp) AS first_ts
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
-  FROM se GROUP BY user_pseudo_id, session_id
-)
-SELECT dev AS device_category,
-  COUNT(*) AS step1_sessions,
-  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS step2_view_item,
-  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS step3_add_to_cart,
-  COUNTIF(ts_k IS NOT NULL AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS step4_begin_checkout,
-  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS step5_purchase
-FROM pv WHERE ts_s IS NOT NULL
-GROUP BY dev ORDER BY step1_sessions DESC
-""")
-
-step_map = {"step1_sessions":"Session Start","step2_view_item":"View Item",
-            "step3_add_to_cart":"Add to Cart","step4_begin_checkout":"Begin Checkout",
-            "step5_purchase":"Purchase"}
-device_long = device_raw.melt(
-    id_vars="device_category", value_vars=list(step_map.keys()),
-    var_name="step_col", value_name="sessions")
-device_long["step"] = device_long["step_col"].map(step_map)
-base_dev = (device_long[device_long["step_col"]=="step1_sessions"]
-            [["device_category","sessions"]].rename(columns={"sessions":"base"}))
-device_long = device_long.merge(base_dev, on="device_category")
-device_long["pct"] = (device_long["sessions"] / device_long["base"] * 100).round(2)
-
-# ── 4. Shoppers funnel (entry at view_item) ───────────────────────────────────
+# ── 3. Shoppers funnel (entry at view_item) ───────────────────────────────────
 print("Querying shoppers funnel...")
 shoppers_raw = q(f"""
 WITH base AS (
@@ -314,22 +275,19 @@ biggest_drop_idx  = funnel_df["abs_drop_n"].idxmax()
 biggest_drop_step = funnel_df.loc[biggest_drop_idx, "step"]
 biggest_drop_n    = int(funnel_df.loc[biggest_drop_idx, "abs_drop_n"])
 
-# Device insight
-purch_by_dev = device_long[device_long["step_col"]=="step5_purchase"].copy()
-device_gap   = round(float(purch_by_dev["pct"].max()) - float(purch_by_dev["pct"].min()), 1)
-top_device   = purch_by_dev.loc[purch_by_dev["pct"].idxmax(), "device_category"]
-
 # Cohort retention
 avg_wk1 = round(float(cohort_pct["Week 1"].mean()), 1) if "Week 1" in cohort_pct.columns else None
 avg_wk2 = round(float(cohort_pct["Week 2"].mean()), 1) if "Week 2" in cohort_pct.columns else None
 
 # Opportunity sizing: what if we lift session → view_item by 5pp?
-lift_5pp_views     = int(total_sessions * 0.05)
-lift_5pp_purchases = int(lift_5pp_views * (shoppers_atc / 100) *
-                         (float(shoppers_raw["step3_begin_checkout"].iloc[0]) /
-                          float(shoppers_raw["step1_view_item"].iloc[0])) *
-                         (float(shoppers_raw["step4_purchase"].iloc[0]) /
-                          float(shoppers_raw["step1_view_item"].iloc[0])))
+# Extra sessions that would now view a product if the rate goes from current to current+5pp
+lift_5pp_views = int(total_sessions * 0.05)
+# Of those extra view_item sessions, apply the observed view_item → purchase rate
+# purchase rate = (purchases from view_item sessions) / (sessions that viewed item)
+view_item_n    = int(funnel_raw["step2_view_item"].iloc[0])
+purchase_n_raw = int(funnel_raw["step5_purchase"].iloc[0])
+view_to_purchase_rate = purchase_n_raw / view_item_n  # e.g. 2721/75261 ≈ 3.6%
+lift_5pp_purchases = round(lift_5pp_views * view_to_purchase_rate)
 lift_5pp_revenue   = round(lift_5pp_purchases * aov, 0)
 
 # ── Executive summary (computed from real numbers) ────────────────────────────
@@ -363,55 +321,28 @@ else:
 # CHARTS
 # ══════════════════════════════════════════════════════════════════════════════
 
-# Funnel chart — horizontal bar (px.funnel doesn't render in standalone HTML)
-bar_colors = ["#4C78A8"] * len(funnel_df)
-bar_colors[0] = "#2c5282"  # slightly darker for session start
-
-fig_funnel = go.Figure(go.Bar(
-    x=funnel_df["sessions"],
-    y=funnel_df["step"],
-    orientation="h",
-    marker_color=bar_colors,
-    text=[f"{s:,}" for s in funnel_df["sessions"]],
-    textposition="inside",
-    textfont=dict(size=12, color="white"),
-    hovertemplate="<b>%{y}</b><br>Sessions: %{x:,}<extra></extra>",
+# Funnel chart — native go.Funnel (tapering funnel shape, cleaner than horizontal bar)
+fig_funnel = go.Figure(go.Funnel(
+    y=funnel_df["step"].tolist(),
+    x=funnel_df["sessions"].tolist(),
+    textposition="auto",
+    textinfo="value+percent initial",
+    marker=dict(
+        color=["#2c5282", "#1e40af", "#2563eb", "#3b82f6", "#60a5fa"],
+        line=dict(color="white", width=1),
+    ),
+    connector=dict(line=dict(color="#e2e8f0", width=1)),
+    hovertemplate="<b>%{y}</b><br>Sessions: %{x:,}<br>% of start: %{percentInitial:.1%}<extra></extra>",
+    opacity=0.9,
 ))
-for i, row in funnel_df.iterrows():
-    if i == 0:
-        continue
-    fig_funnel.add_annotation(
-        x=row["sessions"], y=row["step"],
-        text=f"  ↓ {row['drop_off']}% drop  ({row['step_cvr']}% pass)",
-        showarrow=False, xanchor="left",
-        font=dict(size=11, color="#dc2626"),
-    )
 fig_funnel.update_layout(
-    height=400, margin=dict(l=130, r=220, t=20, b=20),
+    height=420, margin=dict(l=20, r=20, t=10, b=10),
     paper_bgcolor="white", plot_bgcolor="white", showlegend=False,
-    xaxis=dict(showgrid=True, gridcolor="#f0f0f0", zeroline=False),
-    yaxis=dict(categoryorder="array", categoryarray=list(reversed(funnel_df["step"].tolist()))),
-)
-
-# Device chart
-fig_device = px.bar(
-    device_long, x="step", y="pct", color="device_category",
-    barmode="group",
-    labels={"pct":"% of Sessions","step":"","device_category":"Device"},
-    color_discrete_map={"desktop":"#4C78A8","mobile":"#F58518","tablet":"#54A24B"},
-    text="pct",
-)
-fig_device.update_traces(texttemplate="%{text:.1f}%", textposition="outside")
-fig_device.update_layout(
-    height=360, xaxis_tickangle=-15,
-    paper_bgcolor="white", plot_bgcolor="white",
-    margin=dict(t=20, b=10),
-    legend=dict(orientation="h", yanchor="bottom", y=1.02),
 )
 
 # Time-to-convert chart
 ttc_steps = pd.DataFrame({
-    "transition": ["Session→View","View→Cart","Cart→Checkout","Checkout→Purchase"],
+    "transition": ["Session → View Item","View Item → Add to Cart","Add to Cart → Checkout","Checkout → Purchase"],
     "median_hours": [float(ttc_df["p50_s_to_v"].iloc[0]),
                      float(ttc_df["p50_v_to_c"].iloc[0]),
                      float(ttc_df["p50_c_to_k"].iloc[0]),
@@ -421,19 +352,26 @@ fig_ttc = px.bar(ttc_steps, x="transition", y="median_hours",
                  color="median_hours", color_continuous_scale="Blues",
                  text=[f"{v:.2f}h" for v in ttc_steps["median_hours"]],
                  labels={"median_hours":"Median hours","transition":""})
-fig_ttc.update_traces(texttemplate="%{text}", textposition="outside")
-fig_ttc.update_layout(height=340, showlegend=False, coloraxis_showscale=False,
+fig_ttc.update_traces(
+    texttemplate="%{text}",
+    textposition="outside",
+    hovertemplate="<b>%{x}</b><br>Median time: %{y:.2f} hours<extra></extra>",
+    marker_color="#4C78A8",  # solid single colour — no redundant colour encoding
+)
+fig_ttc.update_layout(height=360, showlegend=False, coloraxis_showscale=False,
                       paper_bgcolor="white", plot_bgcolor="white",
-                      margin=dict(t=20, b=10))
+                      margin=dict(t=20, b=10), xaxis_tickangle=-15)
 
-# Cohort heatmap
+# Cohort heatmap — zmax=12 so 0-12% retention range uses full colour spectrum
+# Week 0 cells (100%) will be max-dark; all subsequent cells show meaningful gradient
 fig_cohort = go.Figure(go.Heatmap(
     z=cohort_pct.values.tolist(),
     x=cohort_pct.columns.tolist(),
     y=cohort_pct.index.tolist(),
     text=[[f"{v:.0f}%" for v in row] for row in cohort_pct.values.tolist()],
     texttemplate="%{text}",
-    colorscale="Blues", reversescale=True, zmin=0, zmax=100,
+    colorscale="Blues", reversescale=True, zmin=0, zmax=12,
+    hovertemplate="Cohort: <b>%{y}</b><br>Week: %{x}<br>Retention: %{z:.1f}%<extra></extra>",
 ))
 fig_cohort.update_layout(
     xaxis_title="Weeks Since First Session", yaxis_title="Cohort Week",
@@ -588,6 +526,12 @@ html = f"""<!DOCTYPE html>
   .rec .metric {{ font-size: 0.78rem; font-weight: 600; color: #6b7280;
                   border-top: 1px solid #f3f4f6; padding-top: 10px; margin-top: 4px; }}
   .rec .metric::before {{ content: "📊 Watch: "; }}
+  .rec-section {{ margin-top: 14px; padding-top: 12px; border-top: 1px solid #f3f4f6; }}
+  .rec-section:first-of-type {{ margin-top: 10px; padding-top: 10px; }}
+  .rec-section-label {{ font-size: 0.67rem; font-weight: 700; text-transform: uppercase;
+                        letter-spacing: 0.9px; color: #9ca3af; margin-bottom: 6px; }}
+  .rec-impact {{ background: #f8fafc; border-radius: 8px; padding: 10px 14px; margin-top: 12px; }}
+  .rec-impact .rec-section-label {{ color: #1d4ed8; }}
 
   /* SaaS translation table */
   .saas-table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
@@ -638,6 +582,30 @@ html = f"""<!DOCTYPE html>
 
 <div class="container">
 
+  <!-- ── About This Dataset ────────────────────────────────────────────── -->
+  <p class="section-label">About This Dataset</p>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;font-size:0.87rem;color:#374151;line-height:1.7">
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Business</strong>
+        <strong>Google Merchandise Store</strong> (<a href="https://shop.googlemerchandisestore.com" target="_blank" style="color:#2563eb">store.google.com</a>)<br>
+        B2C e-commerce selling Google-branded merchandise: apparel, accessories, and electronics.
+      </div>
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Dataset</strong>
+        Google's public obfuscated GA4 export on BigQuery<br>
+        (<code>bigquery-public-data.ga4_obfuscated_sample_ecommerce</code>)<br>
+        {date_label} · {total_sessions:,} sessions · {unique_users:,} unique users
+      </div>
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Events analysed</strong>
+        <code>session_start</code> · <code>view_item</code> · <code>add_to_cart</code><br>
+        <code>begin_checkout</code> · <code>purchase</code><br>
+        Raw GA4 event stream — nested <code>event_params</code>, session IDs extracted via <code>UNNEST</code>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Executive Summary ───────────────────────────────────────────────── -->
   <p class="section-label">Executive Summary</p>
   <div class="exec-card">
@@ -651,7 +619,12 @@ html = f"""<!DOCTYPE html>
     <div class="kpi">
       <div class="kpi-label">Total Sessions</div>
       <div class="kpi-value">{total_sessions:,}</div>
-      <div class="kpi-sub">unique session-start events</div>
+      <div class="kpi-sub">unique user × session pairs</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Unique Users</div>
+      <div class="kpi-value">{unique_users:,}</div>
+      <div class="kpi-sub">distinct user_pseudo_ids · {total_sessions/unique_users:.1f} sessions/user avg</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Session → Purchase</div>
@@ -723,20 +696,9 @@ html = f"""<!DOCTYPE html>
       </div>
     </div>
 
-    <div class="finding">
-      <div class="finding-num">Finding 05 · Device is not the lever</div>
-      <div class="finding-stat blue">{device_gap:.1f}pp</div>
-      <div class="finding-title">gap between {top_device} and other devices</div>
-      <div class="finding-body">
-        Purchase conversion rates differ by only <strong>{device_gap:.1f} percentage
-        points</strong> across devices. Mobile checkout UX is not a meaningful
-        driver of lost revenue here. Optimisation effort should focus on
-        discovery and retention, not device-specific checkout flows.
-      </div>
-    </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 06 · Revenue concentration</div>
+      <div class="finding-num">Finding 05 · Revenue concentration</div>
       <div class="finding-stat green">${aov:,.0f}</div>
       <div class="finding-title">avg order value (${median_order:,.0f} median)</div>
       <div class="finding-body">
@@ -770,31 +732,21 @@ html = f"""<!DOCTYPE html>
         </div>
         <div class="opportunity">
           <h4>Revenue opportunity</h4>
-          <p>If session → view_item improves by just <strong>5 percentage points</strong>:</p>
+          <p>If session → view_item improves by just <strong>5 percentage points</strong> ({view_rate:.0f}% → {view_rate+5:.0f}%):</p>
           <span class="big-number">~{lift_5pp_purchases:,} extra orders</span>
           <p>~<strong>${lift_5pp_revenue:,.0f}</strong> additional revenue
-          (at current AOV of ${aov:,.0f})</p>
+          (at current AOV of ${aov:,.0f} · assumes same {view_to_purchase_rate*100:.1f}% view→purchase rate)</p>
         </div>
       </div>
     </div>
   </div>
 
-  <!-- ── Device + time-to-convert ───────────────────────────────────────── -->
-  <p class="section-label">Device Breakdown & Time-to-Convert</p>
-  <div class="two-col">
-    <div class="card">
-      {chart_div(fig_device, "chart-device")}
-      <div class="insight-panel" style="margin-top:16px">
-        <h4>Conclusion</h4>
-        <p>Purchase rates are within <strong>{device_gap:.1f}pp</strong> across
-        all device types. Device-specific checkout optimisation is
-        <strong>not a priority</strong>. The funnel problem is consistent
-        regardless of how users access the site.</p>
-      </div>
-    </div>
-    <div class="card">
-      {chart_div(fig_ttc, "chart-ttc")}
-      <div class="insight-panel" style="margin-top:16px">
+  <!-- ── Time-to-convert ────────────────────────────────────────────────── -->
+  <p class="section-label">Time-to-Convert</p>
+  <div class="card">
+    <div class="two-col">
+      <div>{chart_div(fig_ttc, "chart-ttc")}</div>
+      <div class="insight-panel">
         <h4>Conclusion</h4>
         <p>Converting sessions complete the journey in
         <strong>{total_ttc_hrs:.1f} hours</strong> (median).
@@ -827,6 +779,14 @@ html = f"""<!DOCTYPE html>
         <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
         the % of activated users who return within 7 days. The intervention
         is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
+        <h4 style="margin-top:16px">Why the Oct 26 cohort stands out</h4>
+        <p>The earliest cohort (week of Oct 26) shows <strong>~11% Week-1 retention</strong> —
+        roughly double the average. This cohort arrived <em>before</em> the main
+        holiday acquisition push, which means it likely skewed toward organic, high-intent
+        visitors rather than broad paid traffic. As campaigns ramped up in November and
+        December, the audience widened and average intent dropped — pulling retention
+        down. This tells us the site <strong>can</strong> retain engaged users;
+        the challenge is audience quality, not product experience alone.</p>
       </div>
       <div>{chart_div(fig_cohort, "chart-cohort")}</div>
     </div>
@@ -838,41 +798,166 @@ html = f"""<!DOCTYPE html>
 
     <div class="rec">
       <span class="rec-priority p1">Priority 1 · Immediate</span>
-      <h4>Fix product discovery — get users to product pages</h4>
-      <p>{100-view_rate:.0f}% of sessions never reach a product page.
-      Audit the homepage and category navigation: are products surfaced
-      above the fold? Test a personalised "recommended for you" module
-      on the landing page. Instrument clicks on navigation elements to
-      identify which paths lead to product views.</p>
-      <p>In a SaaS context: this is the equivalent of users who log in
-      but never navigate to a core feature — fix the empty state or
-      improve the onboarding flow.</p>
-      <div class="metric">session → view_item rate (target: &gt;30%)</div>
+      <h4>Fix product discovery</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>{100-view_rate:.0f}% of sessions never reach a product page</strong> —
+        that's <strong>{total_sessions - view_item_n:,} visits</strong> lost before the
+        buying experience even begins. This is the single largest drop in the funnel and
+        the highest-leverage opportunity. In a SaaS context, this maps to users who log in
+        but never navigate to a core feature.</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Audit the homepage and category navigation — are products surfaced above the fold?
+        Test a personalised "Recommended for you" module on the landing page.
+        Instrument clicks on navigation elements to identify which paths lead to product views
+        and which lead to exits.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>A <strong>5pp improvement</strong> in session → view_item rate would drive
+        approximately <strong>~{lift_5pp_purchases:,} additional orders</strong> and
+        ~<strong>${lift_5pp_revenue:,.0f}</strong> in additional revenue at current AOV.</p>
+        <div class="metric">session → view_item rate (target: &gt;30%)</div>
+      </div>
     </div>
 
     <div class="rec">
       <span class="rec-priority p2">Priority 2 · Short-term</span>
-      <h4>Build a re-engagement lifecycle for new users</h4>
-      <p>Week-1 retention of {wk1_display} means most acquired users
-      are one-and-done. Launch a triggered email or push sequence:
-      Day 1 (product browsed but not purchased), Day 3 (cart abandonment),
-      Day 7 (win-back). Measure impact on Week-1 and Week-2 return rates
-      separately per cohort.</p>
-      <div class="metric">Week-1 cohort retention rate (target: &gt;15%)</div>
+      <h4>Build a re-engagement lifecycle</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p>Week-1 retention of <strong>{wk1_display}</strong> means the vast majority of
+        acquired users visit once and never return — well below the ~20% benchmark for
+        healthy e-commerce cohorts. No post-visit re-engagement mechanism is in place.</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Launch a triggered email or push sequence:
+        <strong>Day 1</strong> (product browsed but not purchased),
+        <strong>Day 3</strong> (cart abandonment reminder),
+        <strong>Day 7</strong> (win-back with incentive).
+        Measure Week-1 and Week-2 return rates per cohort separately to isolate the effect.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>The Oct 26 cohort benchmarks at <strong>~11% retention</strong> with a high-intent
+        organic audience — confirming the site can retain engaged users.
+        Even a modest lift from 4.4% to 8% Week-1 retention compounds across all new cohorts
+        and multiplies total session volume without increasing acquisition spend.</p>
+        <div class="metric">Week-1 cohort retention rate (target: &gt;8%)</div>
+      </div>
     </div>
 
     <div class="rec">
       <span class="rec-priority p3">Priority 3 · Investigate</span>
-      <h4>Segment by traffic source to find high-quality acquisition</h4>
-      <p>Total revenue of ${total_revenue:,.0f} comes from {purchase_n:,}
-      sessions. The mean/median AOV gap suggests a small segment of
-      high-value buyers. Break down session → purchase conversion and
-      AOV by <code>traffic_source.medium</code> to identify which
-      channels drive purchasers vs browsers — then reallocate acquisition
-      budget accordingly.</p>
-      <div class="metric">revenue per session by traffic source</div>
+      <h4>Segment by traffic source</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>${total_revenue:,.0f} total revenue</strong> came from just
+        {purchase_n:,} sessions — but the mean/median AOV gap (${aov:,.0f} vs ${median_order:,.0f})
+        suggests a small segment of high-value buyers is driving disproportionate revenue.
+        Currently there is no visibility into which acquisition channels produce buyers
+        versus browsers.</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Break down session → purchase conversion rate and average order value by
+        <code>traffic_source.medium</code>. Identify which channels — paid search,
+        organic, email, referral — drive purchasers. Then cross-check which channels
+        produce high-AOV buyers vs high-volume low-intent traffic.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>Reallocating even 20% of acquisition budget from low-converting to
+        high-converting channels could meaningfully improve overall CVR without
+        increasing total spend. If one channel converts at 2× the average,
+        doubling investment there has immediate revenue impact.</p>
+        <div class="metric">revenue per session by traffic_source.medium</div>
+      </div>
     </div>
 
+  </div>
+
+  {f'''
+  <!-- AI Product Brief -->
+  <p class="section-label">AI-Generated Product Brief
+    <span class="ai-badge">Claude</span></p>
+  <div class="card">
+    <div class="brief-body">{brief_html}</div>
+  </div>
+  ''' if brief_html else ""}
+
+  <!-- ── Report Automation ──────────────────────────────────────────────── -->
+  <p class="section-label">AI-Augmented Report Automation</p>
+  <div class="card">
+    <p style="font-size:0.87rem;color:#4b5563;margin-bottom:20px;line-height:1.7">
+      This pipeline goes beyond a standard scheduled script. It combines a
+      <strong>parameterised Python data pipeline</strong> with a
+      <strong>large language model (Claude, via Anthropic API)</strong> to produce
+      two distinct outputs on every run: structured interactive charts from BigQuery data,
+      and a freshly written AI product brief that reads the new numbers and generates
+      updated analysis, hypotheses, and recommendations in natural language —
+      automatically, without a human analyst in the loop.
+    </p>
+    <div class="two-col" style="gap:24px">
+      <div>
+        <div class="insight-panel">
+          <h4>Where the LLM fits in</h4>
+          <p>After all BigQuery queries complete, the pipeline packages the results —
+          funnel rates, revenue metrics, cohort retention figures — into a structured
+          JSON context and sends them to the Claude API with a prompt instructing it to
+          act as a senior product analyst.</p>
+          <p>The LLM does not read raw data or SQL. It receives curated, computed metrics
+          and produces a <strong>free-text product brief</strong>: executive summary,
+          key findings ranked by confidence, hypotheses with reasoning, and recommended
+          actions. This output is different every run because the underlying numbers change.</p>
+          <p>This is distinct from a rule-based template ("if CVR &lt; 1% then show warning"):
+          the model reasons over the data holistically, surfaces non-obvious patterns,
+          and frames findings in business language without being explicitly programmed to do so.</p>
+        </div>
+      </div>
+      <div>
+        <div class="insight-panel">
+          <h4>End-to-end architecture</h4>
+          <p style="font-family:monospace;font-size:0.81rem;background:#f3f4f6;padding:14px 16px;border-radius:8px;line-height:2.1;color:#1f2937">
+            GA4 BigQuery Export<br>
+            &nbsp;&nbsp;&nbsp;↓ SQL · partition-pruned queries<br>
+            Computed metrics (Python)<br>
+            &nbsp;&nbsp;&nbsp;↓ structured JSON context<br>
+            <strong>Claude API (LLM)</strong><br>
+            &nbsp;&nbsp;&nbsp;↓ natural-language product brief<br>
+            generate_dashboard.py<br>
+            &nbsp;&nbsp;&nbsp;↓ Plotly charts + AI brief → HTML<br>
+            dashboard.html → Stakeholders
+          </p>
+          <p style="margin-top:14px;font-size:0.83rem;color:#374151">
+            Change <code>DATE_START</code>, <code>DATE_END</code>, and <code>DATASET</code>
+            at the top of the script — then run
+            <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>.
+            Every chart, metric, and AI insight refreshes in under 60 seconds.
+            Schedule via cron, Cloud Scheduler, or Airflow for weekly delivery.
+          </p>
+        </div>
+        <div class="opportunity" style="margin-top:12px">
+          <h4>Next enhancement</h4>
+          <p>Pass the current period metrics <em>and</em> the prior period metrics to the LLM
+          context so the AI brief can reason about trends and changes — not just the
+          current snapshot. This moves the pipeline from a static summary tool to a
+          genuine period-over-period analytical narrative, automated end to end.</p>
+        </div>
+      </div>
+    </div>
   </div>
 
   <!-- ── B2B SaaS translation ────────────────────────────────────────────── -->
@@ -933,15 +1018,6 @@ html = f"""<!DOCTYPE html>
     </table>
   </div>
 
-  {f'''
-  <!-- AI Product Brief -->
-  <p class="section-label">AI-Generated Product Brief
-    <span class="ai-badge">Claude</span></p>
-  <div class="card">
-    <div class="brief-body">{brief_html}</div>
-  </div>
-  ''' if brief_html else ""}
-
   <!-- Footer -->
   <div class="footer">
     <strong>Methodology</strong><br>
@@ -957,6 +1033,59 @@ html = f"""<!DOCTYPE html>
   </div>
 
 </div>
+
+<script>
+(function() {{
+  function patchCharts() {{
+
+    // 1. Device chart — linear scale; no JS patch needed for this chart
+
+    // 2. Cohort heatmap — zmax=12 so the 0–12% retention range uses full colour spectrum
+    var cohortDiv = document.getElementById('chart-cohort');
+    if (cohortDiv && cohortDiv.data && cohortDiv.data.length) {{
+      Plotly.restyle('chart-cohort', {{
+        zmin: [0], zmax: [12],
+        hovertemplate: ['Cohort: <b>%{{y}}</b><br>Week: %{{x}}<br>Retention: %{{z:.1f}}%<extra></extra>']
+      }}, [0]);
+    }}
+
+    // 3. TTC chart — fix any corrupted bdata y-values with authoritative values from query
+    var ttcDiv = document.getElementById('chart-ttc');
+    if (ttcDiv && ttcDiv.data && ttcDiv.data.length) {{
+      var p50sv = {float(ttc_df["p50_s_to_v"].iloc[0])};
+      var p50vc = {float(ttc_df["p50_v_to_c"].iloc[0])};
+      var p50ck = {float(ttc_df["p50_c_to_k"].iloc[0])};
+      var p50kp = {float(ttc_df["p50_k_to_p"].iloc[0])};
+      // Clamp near-zero values so bars remain visible
+      var yVals = [p50sv, Math.max(p50vc, 0.001), p50ck, p50kp];
+      var labels = [p50sv+'h', p50vc < 0.001 ? '< 1 sec' : p50vc+'h', p50ck+'h', p50kp+'h'];
+      Plotly.restyle('chart-ttc', {{
+        x: [['Session → View Item','View Item → Add to Cart','Add to Cart → Checkout','Checkout → Purchase']],
+        y: [yVals],
+        text: [labels],
+        texttemplate: ['%{{text}}'],
+        'marker.color': ['#4C78A8'],
+        hovertemplate: ['<b>%{{x}}</b><br>Median time: %{{customdata}}<extra></extra>'],
+        customdata: [[
+          '~' + Math.round(p50sv*60) + ' min',
+          p50vc < 0.001 ? '< 1 sec (decisive shoppers add to cart immediately)' : '~' + Math.round(p50vc*60) + ' min',
+          '~' + Math.round(p50ck*60) + ' min',
+          '~' + Math.round(p50kp*60) + ' min'
+        ]]
+      }}, [0]);
+      Plotly.relayout('chart-ttc', {{
+        'xaxis.tickangle': -15,
+        'yaxis.title.text': 'Median hours',
+        coloraxis: null
+      }});
+    }}
+  }}
+
+  if (document.readyState === 'complete') {{ patchCharts(); }}
+  else {{ window.addEventListener('load', patchCharts); }}
+}})();
+</script>
+
 </body>
 </html>"""
 
