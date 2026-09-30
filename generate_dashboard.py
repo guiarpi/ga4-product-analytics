@@ -143,7 +143,66 @@ SELECT
 FROM conv WHERE revenue IS NOT NULL AND revenue > 0
 """)
 
-# ── 3. Shoppers funnel (entry at view_item) ───────────────────────────────────
+# ── 3. Device breakdown ───────────────────────────────────────────────────────
+# Rendered as a summary table rather than a grouped bar chart: with all three
+# devices tracking within ~0.1pp of each other, a chart encodes three nearly
+# identical lines and invites the reader to hunt for a difference that isn't
+# there. The table states the finding directly — device is not the lever.
+print("Querying device breakdown...")
+device_raw = q(f"""
+WITH base AS (
+  SELECT user_pseudo_id, device.category AS dev,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
+    event_name, event_timestamp
+  FROM `{DATASET}.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
+),
+se AS (
+  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
+    event_name, MIN(event_timestamp) AS first_ts
+  FROM base WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id, event_name
+),
+pv AS (
+  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
+    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
+    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
+    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
+    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
+    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
+  FROM se GROUP BY user_pseudo_id, session_id
+)
+SELECT dev AS device_category,
+  COUNT(*) AS sessions,
+  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS view_item,
+  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS add_to_cart,
+  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS purchase
+FROM pv WHERE ts_s IS NOT NULL
+GROUP BY dev ORDER BY sessions DESC
+""")
+
+device_tbl = device_raw.copy()
+device_tbl["share"]      = device_tbl["sessions"] / device_tbl["sessions"].sum() * 100
+device_tbl["view_pct"]   = device_tbl["view_item"]   / device_tbl["sessions"] * 100
+device_tbl["cart_pct"]   = device_tbl["add_to_cart"] / device_tbl["sessions"] * 100
+device_tbl["purch_pct"]  = device_tbl["purchase"]    / device_tbl["sessions"] * 100
+
+device_gap = round(float(device_tbl["purch_pct"].max()) - float(device_tbl["purch_pct"].min()), 2)
+top_device = device_tbl.loc[device_tbl["purch_pct"].idxmax(), "device_category"]
+
+device_rows_html = "\n".join(
+    f'<tr><td class="dev-name">{r.device_category}</td>'
+    f'<td>{int(r.sessions):,}</td>'
+    f'<td>{r.share:.1f}%</td>'
+    f'<td>{r.view_pct:.1f}%</td>'
+    f'<td>{r.cart_pct:.1f}%</td>'
+    f'<td class="dev-key">{r.purch_pct:.2f}%</td></tr>'
+    for r in device_tbl.itertuples()
+)
+
+# ── 4. Shoppers funnel (entry at view_item) ───────────────────────────────────
 print("Querying shoppers funnel...")
 shoppers_raw = q(f"""
 WITH base AS (
@@ -239,11 +298,46 @@ WHERE a.activity_week >= f.cohort_week
 GROUP BY f.cohort_week, weeks_since_cohort
 ORDER BY f.cohort_week, weeks_since_cohort
 """)
-cohort_pivot = (cohort_df.pivot(index="cohort_week", columns="weeks_since_cohort",
-                                values="active_users").fillna(0).astype(int))
+cohort_pivot = cohort_df.pivot(index="cohort_week", columns="weeks_since_cohort",
+                               values="active_users")
+
+# ── Censoring guard ───────────────────────────────────────────────────────────
+# A recent cohort has not yet had the chance to return in later weeks. Filling
+# those cells with 0 would report "hasn't happened yet" as "0% retention" — a
+# fabricated finding. Only weeks fully covered by the observation window are
+# kept; everything beyond it stays NaN and renders blank.
+import datetime as _dt
+_start = _dt.date(int(DATE_START[:4]), int(DATE_START[4:6]), int(DATE_START[6:8]))
+_end   = _dt.date(int(DATE_END[:4]),   int(DATE_END[4:6]),   int(DATE_END[6:8]))
+_cohort_dates = [pd.Timestamp(d).date() for d in cohort_pivot.index]
+
+_observed = pd.DataFrame(
+    [[(cd + _dt.timedelta(days=7 * int(k) + 6)) <= _end for k in cohort_pivot.columns]
+     for cd in _cohort_dates],
+    index=cohort_pivot.index, columns=cohort_pivot.columns,
+)
+cohort_pivot = cohort_pivot.where(_observed)                          # censored → NaN
+cohort_pivot = cohort_pivot.mask(_observed & cohort_pivot.isna(), 0)  # observed & absent → real 0
+
 cohort_pct = cohort_pivot.div(cohort_pivot[0], axis=0).multiply(100).round(1)
+
+# ── Partial first cohort guard ────────────────────────────────────────────────
+# Cohort weeks are Monday-anchored, so when DATE_START is not a Monday the first
+# bucket only contains the tail of that week. It has a much smaller base and
+# therefore much higher variance — it is an artefact of the window boundary,
+# not a behavioural signal, and must be excluded from the averages.
+partial_first        = _cohort_dates[0] < _start
+partial_label        = str(_cohort_dates[0]) if partial_first else None
+partial_days         = (_dt.timedelta(days=6) - (_start - _cohort_dates[0])).days + 1 if partial_first else None
+partial_n            = int(cohort_pivot[0].iloc[0]) if partial_first else None
+first_full_label     = str(_cohort_dates[1]) if partial_first and len(_cohort_dates) > 1 else None
+first_full_n         = int(cohort_pivot[0].iloc[1]) if partial_first and len(cohort_pivot) > 1 else None
+
 cohort_pct.index   = cohort_pct.index.astype(str)
 cohort_pct.columns = [f"Week {c}" for c in cohort_pct.columns]
+
+# Averages computed over full cohorts only; NaN (censored) cells are skipped.
+cohort_pct_full = cohort_pct.iloc[1:] if partial_first else cohort_pct
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -256,7 +350,8 @@ view_item_n     = int(funnel_df["sessions"].iloc[1])
 purchase_n      = int(funnel_df["sessions"].iloc[4])
 overall_cvr     = float(funnel_df["overall_cvr"].iloc[4])
 view_rate       = float(funnel_df["step_cvr"].iloc[1])   # session → view_item
-atc_from_view   = float(funnel_df["step_cvr"].iloc[2])   # view_item → add_to_cart
+atc_from_view    = float(funnel_df["step_cvr"].iloc[2])     # add_to_cart as % of PRODUCT VIEWERS
+atc_all_sessions = float(funnel_df["overall_cvr"].iloc[2])  # add_to_cart as % of ALL SESSIONS
 aov             = float(revenue_df["avg_order_value"].iloc[0])
 median_order    = float(revenue_df["median_order_value"].iloc[0])
 total_revenue   = float(revenue_df["total_revenue"].iloc[0])
@@ -275,9 +370,29 @@ biggest_drop_idx  = funnel_df["abs_drop_n"].idxmax()
 biggest_drop_step = funnel_df.loc[biggest_drop_idx, "step"]
 biggest_drop_n    = int(funnel_df.loc[biggest_drop_idx, "abs_drop_n"])
 
-# Cohort retention
-avg_wk1 = round(float(cohort_pct["Week 1"].mean()), 1) if "Week 1" in cohort_pct.columns else None
-avg_wk2 = round(float(cohort_pct["Week 2"].mean()), 1) if "Week 2" in cohort_pct.columns else None
+# Partial-first-cohort caveat — rendered only when the window opens mid-week
+if partial_first and first_full_n:
+    partial_cohort_note = (
+        f'<p><strong>1 · The first cohort is a partial week.</strong> Cohorts are '
+        f'Monday-anchored, but the data window opens on '
+        f'{_start.strftime("%d %b %Y")} — a {_start.strftime("%A")}. The '
+        f'{partial_label} bucket therefore captures only <strong>{partial_days} day(s)</strong> '
+        f'of first sessions: <strong>{partial_n:,} users</strong> against '
+        f'<strong>{first_full_n:,}</strong> in the first full cohort '
+        f'({first_full_label}). Its elevated Week-1 rate is small-sample variance '
+        f'from the window boundary, not a behavioural signal — so it is '
+        f'<strong>excluded from the averages above</strong> rather than explained.</p>'
+    )
+else:
+    partial_cohort_note = (
+        '<p><strong>1 · Cohort alignment.</strong> The observation window opens on '
+        'a Monday, so every cohort bucket represents a full week and no '
+        'partial-week distortion is present.</p>'
+    )
+
+# Cohort retention — full cohorts only, censored cells excluded automatically by .mean()
+avg_wk1 = round(float(cohort_pct_full["Week 1"].mean()), 1) if "Week 1" in cohort_pct_full.columns else None
+avg_wk2 = round(float(cohort_pct_full["Week 2"].mean()), 1) if "Week 2" in cohort_pct_full.columns else None
 
 # Opportunity sizing: what if we lift session → view_item by 5pp?
 # Extra sessions that would now view a product if the rate goes from current to current+5pp
@@ -289,6 +404,10 @@ purchase_n_raw = int(funnel_raw["step5_purchase"].iloc[0])
 view_to_purchase_rate = purchase_n_raw / view_item_n  # e.g. 2721/75261 ≈ 3.6%
 lift_5pp_purchases = round(lift_5pp_views * view_to_purchase_rate)
 lift_5pp_revenue   = round(lift_5pp_purchases * aov, 0)
+# Sensitivity: incremental traffic almost always converts below the existing
+# average, so the headline figure is an optimistic upper bound. Model 50% / 75%.
+lift_5pp_rev_50 = round(lift_5pp_revenue * 0.50, 0)
+lift_5pp_rev_75 = round(lift_5pp_revenue * 0.75, 0)
 
 # ── Executive summary (computed from real numbers) ────────────────────────────
 bottleneck = "product discovery" if view_rate < 30 else "product-to-cart conversion"
@@ -364,14 +483,19 @@ fig_ttc.update_layout(height=360, showlegend=False, coloraxis_showscale=False,
 
 # Cohort heatmap — zmax=12 so 0-12% retention range uses full colour spectrum
 # Week 0 cells (100%) will be max-dark; all subsequent cells show meaningful gradient
+# Blues runs light → dark as the value rises, so darker = better retention.
+# (reversescale was previously on, which rendered 0% as the darkest cell.)
+# zmax=12 keeps the 0–12% band using the full colour range; Week 0 is always 100%.
+_z_cohort = cohort_pct.values.tolist()
 fig_cohort = go.Figure(go.Heatmap(
-    z=cohort_pct.values.tolist(),
+    z=_z_cohort,
     x=cohort_pct.columns.tolist(),
     y=cohort_pct.index.tolist(),
-    text=[[f"{v:.0f}%" for v in row] for row in cohort_pct.values.tolist()],
+    text=[["" if pd.isna(v) else f"{v:.0f}%" for v in row] for row in _z_cohort],
     texttemplate="%{text}",
-    colorscale="Blues", reversescale=True, zmin=0, zmax=12,
-    hovertemplate="Cohort: <b>%{y}</b><br>Week: %{x}<br>Retention: %{z:.1f}%<extra></extra>",
+    colorscale="Blues", zmin=0, zmax=12,
+    hoverongaps=False,  # censored (NaN) cells show no tooltip
+    hovertemplate="Cohort: <b>%{y}</b><br>%{x}<br>Retention: %{z:.1f}%<extra></extra>",
 ))
 fig_cohort.update_layout(
     xaxis_title="Weeks Since First Session", yaxis_title="Cohort Week",
@@ -500,6 +624,21 @@ html = f"""<!DOCTYPE html>
   .insight-panel p {{ font-size: 0.85rem; color: #374151; margin-bottom: 10px; line-height: 1.65; }}
   .insight-panel p:last-child {{ margin-bottom: 0; }}
   .insight-panel strong {{ color: #111827; }}
+  .caveat-note {{ border-left: 3px solid #cbd5e1; padding-left: 12px;
+                  font-style: italic; color: #6b7280 !important; }}
+
+  /* Device summary table */
+  .dev-table {{ width: 100%; border-collapse: collapse; font-size: 0.85rem; }}
+  .dev-table th {{ text-align: right; font-size: 0.68rem; font-weight: 700;
+                   text-transform: uppercase; letter-spacing: 0.7px;
+                   color: #9ca3af; padding: 0 10px 10px; border-bottom: 1px solid #e5e7eb; }}
+  .dev-table th:first-child {{ text-align: left; }}
+  .dev-table td {{ text-align: right; padding: 12px 10px; color: #374151;
+                   border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; }}
+  .dev-table tr:last-child td {{ border-bottom: none; }}
+  .dev-table .dev-name {{ text-align: left; font-weight: 600; color: #111827;
+                          text-transform: capitalize; }}
+  .dev-table .dev-key {{ font-weight: 700; color: #1d4ed8; }}
 
   /* Opportunity box */
   .opportunity {{ background: #eff6ff; border: 1px solid #bfdbfe;
@@ -666,9 +805,11 @@ html = f"""<!DOCTYPE html>
       <div class="finding-title">of product viewers add to cart</div>
       <div class="finding-body">
         When users do reach a product page, <strong>{shoppers_atc:.0f}%</strong>
-        add to cart — compared to just <strong>{atc_from_view:.1f}%</strong>
-        of all sessions. The gap between these two numbers is the discovery
-        problem. The product detail page itself is not the bottleneck.
+        add to cart — but measured across <em>all</em> sessions the add-to-cart
+        rate is only <strong>{atc_all_sessions:.1f}%</strong>. The same behaviour
+        looks {shoppers_atc/atc_all_sessions:.0f}× weaker once non-viewers are
+        included, and that entire difference is the discovery gap — not a product
+        page problem.
       </div>
     </div>
 
@@ -711,6 +852,19 @@ html = f"""<!DOCTYPE html>
       </div>
     </div>
 
+    <div class="finding">
+      <div class="finding-num">Finding 06 · Device is not the lever</div>
+      <div class="finding-stat blue">{device_gap:.2f}pp</div>
+      <div class="finding-title">spread in purchase rate across all devices</div>
+      <div class="finding-body">
+        Purchase conversion differs by only <strong>{device_gap:.2f} percentage
+        points</strong> between desktop, mobile and tablet. A mobile-first
+        redesign — the intuitive response to a 0.8% conversion rate — would not
+        have moved the number. Effort belongs in discovery and lifecycle, not
+        device-specific checkout work.
+      </div>
+    </div>
+
   </div>
 
   <!-- ── Funnel + insight ────────────────────────────────────────────────── -->
@@ -735,7 +889,16 @@ html = f"""<!DOCTYPE html>
           <p>If session → view_item improves by just <strong>5 percentage points</strong> ({view_rate:.0f}% → {view_rate+5:.0f}%):</p>
           <span class="big-number">~{lift_5pp_purchases:,} extra orders</span>
           <p>~<strong>${lift_5pp_revenue:,.0f}</strong> additional revenue
-          (at current AOV of ${aov:,.0f} · assumes same {view_to_purchase_rate*100:.1f}% view→purchase rate)</p>
+          at current AOV of ${aov:,.0f}.</p>
+          <p style="font-size:0.78rem;opacity:0.85;margin-top:8px">
+          <strong>Sensitivity.</strong> This assumes incremental sessions convert at
+          the same {view_to_purchase_rate*100:.1f}% view→purchase rate as today's
+          traffic — an optimistic upper bound, since marginal traffic typically
+          converts below average. At 75% of that rate:
+          <strong>${lift_5pp_rev_75:,.0f}</strong>. At 50%:
+          <strong>${lift_5pp_rev_50:,.0f}</strong>. Treat
+          <strong>${lift_5pp_rev_50:,.0f}–${lift_5pp_revenue:,.0f}</strong> as the
+          planning range.</p>
         </div>
       </div>
     </div>
@@ -754,6 +917,40 @@ html = f"""<!DOCTYPE html>
         no meaningful payment friction for users who reach this stage.</p>
         <p>Cart abandonment flows and checkout UX are lower priority
         than driving more users to product pages in the first place.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Device breakdown (table — a negative result) ───────────────────── -->
+  <p class="section-label">Device Breakdown — A Negative Result</p>
+  <div class="card">
+    <div class="two-col">
+      <div>
+        <table class="dev-table">
+          <thead>
+            <tr>
+              <th>Device</th><th>Sessions</th><th>Share</th>
+              <th>View Item</th><th>Add to Cart</th><th>Purchase</th>
+            </tr>
+          </thead>
+          <tbody>
+{device_rows_html}
+          </tbody>
+        </table>
+      </div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>Session-to-purchase rates sit within
+        <strong>{device_gap:.2f} percentage points</strong> across desktop,
+        mobile and tablet. The funnel leaks at the same rate regardless of how
+        users reach the site.</p>
+        <p><strong>This is reported precisely because it is a null result.</strong>
+        The intuitive next step after seeing an 0.8% conversion rate is a
+        mobile-first redesign. The data says that work would not have moved the
+        number — the leak is upstream of device, in discovery.</p>
+        <p class="caveat-note">Shown as a table, not a chart: three series
+        differing by {device_gap:.2f}pp render as three identical bars and invite
+        the reader to hunt for a difference that isn't there.</p>
       </div>
     </div>
   </div>
@@ -779,14 +976,16 @@ html = f"""<!DOCTYPE html>
         <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
         the % of activated users who return within 7 days. The intervention
         is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
-        <h4 style="margin-top:16px">Why the Oct 26 cohort stands out</h4>
-        <p>The earliest cohort (week of Oct 26) shows <strong>~11% Week-1 retention</strong> —
-        roughly double the average. This cohort arrived <em>before</em> the main
-        holiday acquisition push, which means it likely skewed toward organic, high-intent
-        visitors rather than broad paid traffic. As campaigns ramped up in November and
-        December, the audience widened and average intent dropped — pulling retention
-        down. This tells us the site <strong>can</strong> retain engaged users;
-        the challenge is audience quality, not product experience alone.</p>
+        <h4 style="margin-top:16px">Data quality — two boundary effects</h4>
+        {partial_cohort_note}
+        <p><strong>2 · Recent cohorts are right-censored.</strong> A user who
+        joined in the final week has not had the opportunity to return. Those
+        cells are left <strong>blank rather than 0%</strong>, because filling them
+        with zero would report "hasn't happened yet" as "did not retain" and
+        drag the trend line down artificially.</p>
+        <p class="caveat-note">Both are the kind of artefact that produces a
+        confident, entirely false narrative if left unhandled — the drop-off
+        across later cohorts would look far steeper than it is.</p>
       </div>
       <div>{chart_div(fig_cohort, "chart-cohort")}</div>
     </div>
@@ -1038,18 +1237,11 @@ html = f"""<!DOCTYPE html>
 (function() {{
   function patchCharts() {{
 
-    // 1. Device chart — linear scale; no JS patch needed for this chart
+    // Cohort heatmap needs no patch — colourscale, zmin/zmax, gap handling and
+    // hover template are all set in Python at render time.
 
-    // 2. Cohort heatmap — zmax=12 so the 0–12% retention range uses full colour spectrum
-    var cohortDiv = document.getElementById('chart-cohort');
-    if (cohortDiv && cohortDiv.data && cohortDiv.data.length) {{
-      Plotly.restyle('chart-cohort', {{
-        zmin: [0], zmax: [12],
-        hovertemplate: ['Cohort: <b>%{{y}}</b><br>Week: %{{x}}<br>Retention: %{{z:.1f}}%<extra></extra>']
-      }}, [0]);
-    }}
-
-    // 3. TTC chart — fix any corrupted bdata y-values with authoritative values from query
+    // TTC chart — Plotly's float64 bdata encoding corrupts near-zero values,
+    // so restyle with the authoritative medians straight from the query.
     var ttcDiv = document.getElementById('chart-ttc');
     if (ttcDiv && ttcDiv.data && ttcDiv.data.length) {{
       var p50sv = {float(ttc_df["p50_s_to_v"].iloc[0])};
