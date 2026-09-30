@@ -1,3 +1,6 @@
+# Personal / career material — never publish
+_private/
+
 # Never commit Google Cloud service account keys
 google_creds.json
 *credentials*.json
@@ -19,3 +22,6 @@ venv/
 
 # OS
 .DS_Store
+
+# Generated output — run generate_dashboard.py to reproduce locally
+product_brief_ga4_funnel.md
