@@ -1,0 +1,14 @@
+# GA4 Funnel Analysis — Python dependencies
+# Install:  pip install -r requirements.txt
+
+pandas>=2.0
+plotly>=5.18
+google-cloud-bigquery>=3.17
+
+# Required by BigQuery's .to_dataframe() — omitting these causes a
+# cryptic dtype error rather than a missing-package error.
+db-dtypes>=1.2
+pyarrow>=14.0
+
+# Optional — only needed for the AI-generated product brief section.
+anthropic>=0.39
