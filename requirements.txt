@@ -12,3 +12,4 @@ pyarrow>=14.0
 
 # Optional — only needed for the AI-generated product brief section.
 anthropic>=0.39
+# google-genai     # optional free alternative for the brief (notebook Section 10e)
