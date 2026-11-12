@@ -15,6 +15,7 @@ Output: dashboard.html
 import warnings
 warnings.filterwarnings("ignore")
 
+import html as _html
 import re
 import sys
 from pathlib import Path
@@ -22,6 +23,7 @@ from pathlib import Path
 import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
+from plotly.offline import get_plotlyjs
 from google.cloud import bigquery
 
 # ── Config ─────────────────────────────────────────────────────────────────────
@@ -202,6 +204,160 @@ device_rows_html = "\n".join(
     for r in device_tbl.itertuples()
 )
 
+# ── 3b. Acquisition channel breakdown (E1) ────────────────────────────────────
+# Question: is the ~79% "never views a product" loss a site-navigation problem
+# (uniform across channels) or a traffic-quality problem (concentrated in some)?
+#
+# Grain matters here. traffic_source.medium on the GA4 export is the USER's
+# first-touch medium — it is the same on every session that user ever has, so
+# grouping a session funnel by it misattributes returning sessions. The
+# session-level medium lives in event_params ('medium'), so it is taken from the
+# earliest event in the session that carries one. Both are returned; the
+# session-level value is used unless its coverage is too thin (see fallback).
+print("Querying acquisition channel breakdown...")
+channel_raw = q(f"""
+WITH base AS (
+  SELECT user_pseudo_id,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
+    traffic_source.medium AS ft_medium,
+    event_name, event_timestamp,
+    ecommerce.purchase_revenue AS purchase_revenue
+  FROM `{DATASET}.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
+),
+sm AS (
+  -- Session medium: value on the earliest event in the session that has one.
+  -- Scans all event types — medium is not guaranteed on the funnel events.
+  SELECT user_pseudo_id, session_id,
+    ARRAY_AGG(medium ORDER BY event_timestamp LIMIT 1)[OFFSET(0)] AS session_medium
+  FROM (
+    SELECT user_pseudo_id, event_timestamp,
+      (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+       WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
+      (SELECT ep.value.string_value FROM UNNEST(event_params) AS ep
+       WHERE ep.key = 'medium' LIMIT 1) AS medium
+    FROM `{DATASET}.events_*`
+    WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+  )
+  WHERE session_id IS NOT NULL AND medium IS NOT NULL
+  GROUP BY user_pseudo_id, session_id
+),
+se AS (
+  SELECT user_pseudo_id, session_id, ANY_VALUE(ft_medium) AS ft_medium,
+    event_name, MIN(event_timestamp) AS first_ts, SUM(purchase_revenue) AS rev
+  FROM base WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id, event_name
+),
+pv AS (
+  SELECT user_pseudo_id, session_id, ANY_VALUE(ft_medium) AS ft_medium,
+    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
+    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
+    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
+    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
+    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p,
+    MAX(CASE WHEN event_name='purchase'       THEN rev END)      AS revenue
+  FROM se GROUP BY user_pseudo_id, session_id
+)
+SELECT
+  COALESCE(sm.session_medium, '(not set)') AS session_medium,
+  COALESCE(pv.ft_medium,      '(not set)') AS first_touch_medium,
+  COUNT(*) AS sessions,
+  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS view_item,
+  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS add_to_cart,
+  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS purchase,
+  ROUND(SUM(IF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s,
+               IFNULL(revenue, 0), 0)), 2) AS revenue
+FROM pv LEFT JOIN sm USING (user_pseudo_id, session_id)
+WHERE ts_s IS NOT NULL
+GROUP BY session_medium, first_touch_medium
+""")
+
+# Fallback: if most sessions carry no session-level medium, the session view is
+# mostly "(not set)" and says nothing — use first-touch medium and label it.
+_ch_metrics = ["sessions", "view_item", "add_to_cart", "purchase", "revenue"]
+session_medium_coverage = 1 - (
+    channel_raw.loc[channel_raw["session_medium"] == "(not set)", "sessions"].sum()
+    / channel_raw["sessions"].sum()
+)
+if session_medium_coverage >= 0.5:
+    channel_dim, channel_basis = "session_medium", "session-level medium (event_params)"
+else:
+    channel_dim, channel_basis = "first_touch_medium", "user first-touch medium (traffic_source.medium)"
+
+channel_tbl = (channel_raw.groupby(channel_dim, as_index=False)[_ch_metrics].sum()
+               .rename(columns={channel_dim: "channel"}))
+
+# Reconciliation: every session must land in exactly one channel. A mismatch
+# means the LEFT JOIN duplicated or dropped sessions.
+_ch_total = int(channel_tbl["sessions"].sum())
+if _ch_total != int(funnel_raw["step1_sessions"].iloc[0]):
+    print(f"  WARNING: channel sessions ({_ch_total:,}) != funnel sessions "
+          f"({int(funnel_raw['step1_sessions'].iloc[0]):,}) — check the sm join")
+
+# Collapse channels under 1% of sessions into one row so the chart is not
+# dominated by noise from tiny denominators.
+_small = channel_tbl["sessions"] / _ch_total < 0.01
+if _small.sum() > 1:
+    _other = channel_tbl[_small][_ch_metrics].sum().to_frame().T
+    _other.insert(0, "channel", f"other ({int(_small.sum())} small channels)")
+    channel_tbl = pd.concat([channel_tbl[~_small], _other], ignore_index=True)
+
+channel_tbl[_ch_metrics]         = channel_tbl[_ch_metrics].astype(float)
+channel_tbl["share"]             = channel_tbl["sessions"] / _ch_total * 100
+channel_tbl["view_pct"]          = channel_tbl["view_item"] / channel_tbl["sessions"] * 100
+channel_tbl["cart_from_view"]    = (channel_tbl["add_to_cart"] /
+                                    channel_tbl["view_item"].where(channel_tbl["view_item"] > 0) * 100)
+channel_tbl["purch_pct"]         = channel_tbl["purchase"] / channel_tbl["sessions"] * 100
+channel_tbl["rev_per_session"]   = channel_tbl["revenue"] / channel_tbl["sessions"]
+# Fewer than 30 purchases → the purchase rate is too noisy to rank on.
+channel_tbl["low_n"]             = channel_tbl["purchase"] < 30
+channel_tbl = channel_tbl.sort_values("sessions", ascending=False).reset_index(drop=True)
+
+# Spread in view-item rate across real channels (excludes the "other" bucket
+# and "(not set)", which are not channels anyone can act on).
+_ch_rank = channel_tbl[~channel_tbl["channel"].str.startswith(("other (", "(not set)"))]
+if _ch_rank.empty:
+    _ch_rank = channel_tbl
+_best_ch  = _ch_rank.loc[_ch_rank["view_pct"].idxmax()]
+_worst_ch = _ch_rank.loc[_ch_rank["view_pct"].idxmin()]
+channel_view_spread = round(float(_best_ch["view_pct"] - _worst_ch["view_pct"]), 1)
+best_view_channel,  best_view_pct  = _html.escape(_best_ch["channel"]),  float(_best_ch["view_pct"])
+worst_view_channel, worst_view_pct = _html.escape(_worst_ch["channel"]), float(_worst_ch["view_pct"])
+_ch_rps = _ch_rank[~_ch_rank["low_n"]]
+top_rev_channel = (_html.escape(_ch_rps.loc[_ch_rps["rev_per_session"].idxmax(), "channel"])
+                   if len(_ch_rps) else None)
+top_rev_rps     = (float(_ch_rps["rev_per_session"].max()) if len(_ch_rps) else None)
+
+# 10pp is the decision threshold: below it, every channel loses roughly the
+# same share of visitors before a product page — the leak is on the site.
+channel_is_driver = channel_view_spread >= 10
+# Within 3pp of the threshold the verdict is reported as borderline rather than
+# settled — a few points of obfuscation noise could move it either way.
+channel_borderline = 7 <= channel_view_spread < 10
+
+# Sessions with no session-level medium are excluded from the spread, but they
+# are a large block and they move the site average, so they are disclosed.
+_ns = channel_tbl[channel_tbl["channel"] == "(not set)"]
+notset_share    = float(_ns["share"].iloc[0])    if len(_ns) else 0.0
+notset_view_pct = float(_ns["view_pct"].iloc[0]) if len(_ns) else None
+
+def _channel_row(r) -> str:
+    # Built outside an f-string expression: backslashes inside f-string
+    # expressions are a SyntaxError before Python 3.12.
+    cart = "—" if pd.isna(r.cart_from_view) else f"{r.cart_from_view:.1f}%"
+    flag = ' <span title="fewer than 30 purchases">*</span>' if r.low_n else ""
+    return (f'<tr><td class="dev-name">{_html.escape(r.channel)}</td>'
+            f'<td>{int(r.sessions):,}</td>'
+            f'<td>{r.share:.1f}%</td>'
+            f'<td class="dev-key">{r.view_pct:.1f}%</td>'
+            f'<td>{cart}</td>'
+            f'<td>{r.purch_pct:.2f}%{flag}</td>'
+            f'<td>${r.rev_per_session:,.2f}</td></tr>')
+
+channel_rows_html = "\n".join(_channel_row(r) for r in channel_tbl.itertuples())
+
 # ── 4. Shoppers funnel (entry at view_item) ───────────────────────────────────
 print("Querying shoppers funnel...")
 shoppers_raw = q(f"""
@@ -234,6 +390,123 @@ SELECT
   COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v) AS step4_purchase
 FROM pv WHERE ts_v IS NOT NULL
 """)
+
+# ── 4b. Product category view → cart (E2) ─────────────────────────────────────
+# Question: the second-largest leak is view_item → add_to_cart. Which product
+# categories is it concentrated in? This turns "audit the product pages" into a
+# ranked list of where to start.
+#
+# Grain: one row per (session, item_category). A session counts as "carting" a
+# category only if it added an item OF THAT CATEGORY at or after first viewing
+# that category in the same session. Adding a different category's item does
+# not count — so this rate is stricter than the session-level shoppers ATC
+# rate, and category rows are not additive (one session can view several).
+#
+# This is deliberately a separate query, not an extension of the session
+# funnel CTE: the items array only exists on view_item / add_to_cart / purchase,
+# so session_start and begin_checkout have no category to group by.
+MIN_CATEGORY_VIEWS = 500   # categories below this are too noisy to rank
+print("Querying product category view → cart...")
+category_raw = q(f"""
+WITH item_events AS (
+  SELECT user_pseudo_id,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
+    event_name, event_timestamp,
+    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category
+  FROM `{DATASET}.events_*`, UNNEST(items) AS it
+  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+    AND event_name IN ('view_item','add_to_cart')
+),
+normalised AS (
+  -- item_category mixes flat labels ("Bags") with paths ("Lifestyle/Bags/").
+  -- Keep the last path segment so both land in one bucket. Normalising here,
+  -- before the per-session grouping, means a session that viewed both labels
+  -- is counted once — merging rows afterwards in pandas would double-count it.
+  -- ' / ' (slash with spaces) is part of a name, e.g. "Men's / Unisex", not a separator.
+  SELECT *,
+    IF(raw_category = '(not set)', raw_category,
+       COALESCE(NULLIF(TRIM(REPLACE(ARRAY_REVERSE(SPLIT(TRIM(REPLACE(raw_category, ' / ', ' | '), '/'), '/'))[SAFE_OFFSET(0)], ' | ', ' / ')), ''),
+                '(not set)')) AS item_category
+  FROM item_events
+),
+labels AS (
+  SELECT item_category,
+    COUNT(DISTINCT raw_category) AS n_source_labels,
+    STRING_AGG(DISTINCT raw_category, ' · ' ORDER BY raw_category) AS source_labels
+  FROM normalised
+  GROUP BY item_category
+),
+sc AS (
+  SELECT user_pseudo_id, session_id, item_category,
+    MIN(IF(event_name='view_item',   event_timestamp, NULL)) AS ts_first_view,
+    MAX(IF(event_name='add_to_cart', event_timestamp, NULL)) AS ts_last_cart
+  FROM normalised WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id, item_category
+),
+agg AS (
+  SELECT item_category,
+    COUNTIF(ts_first_view IS NOT NULL) AS viewing_sessions,
+    -- MAX(cart) >= MIN(view) ⇔ at least one add-to-cart at/after the first view
+    COUNTIF(ts_first_view IS NOT NULL AND ts_last_cart >= ts_first_view) AS carting_sessions
+  FROM sc
+  GROUP BY item_category
+)
+SELECT agg.*, labels.n_source_labels, labels.source_labels
+FROM agg JOIN labels USING (item_category)
+ORDER BY viewing_sessions DESC
+""")
+
+_cat_all_views   = int(category_raw["viewing_sessions"].sum())
+category_raw_labels    = int(category_raw["n_source_labels"].sum())
+category_merged_groups = int((category_raw["n_source_labels"] > 1).sum())
+category_notset_share = (
+    category_raw.loc[category_raw["item_category"] == "(not set)", "viewing_sessions"].sum()
+    / _cat_all_views * 100 if _cat_all_views else 0.0
+)
+category_tbl = category_raw[
+    (category_raw["item_category"] != "(not set)")
+    & (category_raw["viewing_sessions"] >= MIN_CATEGORY_VIEWS)
+].copy()
+category_excluded_n = int(
+    (category_raw["item_category"] != "(not set)").sum() - len(category_tbl)
+)
+category_tbl["atc_pct"] = category_tbl["carting_sessions"] / category_tbl["viewing_sessions"] * 100
+
+# Benchmark = pooled rate across ranked categories (volume-weighted), so one
+# tiny category with an extreme rate cannot move it.
+category_benchmark = (category_tbl["carting_sessions"].sum()
+                      / category_tbl["viewing_sessions"].sum() * 100) if len(category_tbl) else 0.0
+
+# Carts at stake: extra carting sessions if a below-benchmark category merely
+# converted at the benchmark. This is the prioritisation key — a mildly weak
+# category with huge traffic outranks a terrible one nobody visits.
+category_tbl["carts_at_stake"] = (
+    (category_benchmark - category_tbl["atc_pct"]).clip(lower=0) / 100
+    * category_tbl["viewing_sessions"]
+).round().astype(int)
+category_tbl = category_tbl.sort_values("atc_pct").reset_index(drop=True)
+
+_cat_priority = category_tbl.sort_values("carts_at_stake", ascending=False)
+_cat_priority = _cat_priority[_cat_priority["carts_at_stake"] > 0].head(3)
+category_top_targets = [_html.escape(c) for c in _cat_priority["item_category"]]
+category_total_at_stake = int(category_tbl["carts_at_stake"].sum())
+category_top3_at_stake  = int(_cat_priority["carts_at_stake"].sum())
+
+def _merged_note(r) -> str:
+    if r.n_source_labels <= 1:
+        return ""
+    return ('<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">'
+            f'merged: {_html.escape(r.source_labels)}</div>')
+
+category_rows_html = "\n".join(
+    f'<tr><td class="dev-name">{_html.escape(r.item_category)}{_merged_note(r)}</td>'
+    f'<td>{int(r.viewing_sessions):,}</td>'
+    f'<td>{int(r.carting_sessions):,}</td>'
+    f'<td class="dev-key">{r.atc_pct:.1f}%</td>'
+    f'<td>{int(r.carts_at_stake):,}</td></tr>'
+    for r in category_tbl.sort_values("carts_at_stake", ascending=False).itertuples()
+)
 
 # ── 5. Time-to-convert ────────────────────────────────────────────────────────
 print("Querying time-to-convert...")
@@ -309,6 +582,8 @@ cohort_pivot = cohort_df.pivot(index="cohort_week", columns="weeks_since_cohort"
 import datetime as _dt
 _start = _dt.date(int(DATE_START[:4]), int(DATE_START[4:6]), int(DATE_START[6:8]))
 _end   = _dt.date(int(DATE_END[:4]),   int(DATE_END[4:6]),   int(DATE_END[6:8]))
+# Window label derived from the config so prose never hardcodes the months.
+date_label = f"{_start:%b %Y} – {_end:%b %Y}"
 _cohort_dates = [pd.Timestamp(d).date() for d in cohort_pivot.index]
 
 _observed = pd.DataFrame(
@@ -394,6 +669,16 @@ else:
 avg_wk1 = round(float(cohort_pct_full["Week 1"].mean()), 1) if "Week 1" in cohort_pct_full.columns else None
 avg_wk2 = round(float(cohort_pct_full["Week 2"].mean()), 1) if "Week 2" in cohort_pct_full.columns else None
 
+# Re-engagement sizing. WK1_TARGET is a planning target, not an industry
+# benchmark. Only full cohorts whose Week 1 is inside the window count, so the
+# partial first cohort and right-censored cohorts cannot inflate the result.
+WK1_TARGET = 8.0
+_wk1_obs = cohort_pivot.iloc[1:] if partial_first else cohort_pivot
+_wk1_obs = _wk1_obs[_wk1_obs[1].notna()] if 1 in _wk1_obs.columns else _wk1_obs.iloc[0:0]
+wk1_base_users  = int(_wk1_obs[0].sum())
+wk1_n_cohorts   = len(_wk1_obs)
+wk1_extra_users = max(0, round(wk1_base_users * WK1_TARGET / 100 - float(_wk1_obs[1].sum()))) if wk1_n_cohorts else 0
+
 # Opportunity sizing: what if we lift session → view_item by 5pp?
 # Extra sessions that would now view a product if the rate goes from current to current+5pp
 lift_5pp_views = int(total_sessions * 0.05)
@@ -414,7 +699,7 @@ bottleneck = "product discovery" if view_rate < 30 else "product-to-cart convers
 discovery_severity = "critical" if view_rate < 20 else "significant"
 
 exec_summary = (
-    f"Of {total_sessions:,} sessions analysed across Nov 2020–Jan 2021, only "
+    f"Of {total_sessions:,} sessions analysed across {date_label}, only "
     f"<strong>{overall_cvr:.1f}%</strong> completed a purchase. "
     f"The {discovery_severity} bottleneck is <strong>{bottleneck}</strong>: "
     f"just <strong>{view_rate:.0f}%</strong> of sessions ever reached a product page — "
@@ -503,14 +788,83 @@ fig_cohort.update_layout(
     paper_bgcolor="white", margin=dict(t=20),
 )
 
+# Channel chart (E1) — session → view_item rate per channel against the site
+# average. One metric only: it is the metric the question is about. Labels are
+# pre-formatted in Python (texttemplate format strings fail in standalone HTML).
+_ch_plot = channel_tbl.sort_values("view_pct")
+fig_channel = go.Figure(go.Bar(
+    y=_ch_plot["channel"].tolist(),
+    x=_ch_plot["view_pct"].round(1).tolist(),
+    orientation="h",
+    text=[f"{v:.1f}%" for v in _ch_plot["view_pct"]],
+    texttemplate="%{text}", textposition="outside",
+    marker_color=["#dc2626" if v < view_rate - 5 else "#4C78A8" for v in _ch_plot["view_pct"]],
+    customdata=[[f"{int(s):,}", f"{sh:.1f}%"] for s, sh in zip(_ch_plot["sessions"], _ch_plot["share"])],
+    hovertemplate="<b>%{y}</b><br>Session → View Item: %{x:.1f}%"
+                  "<br>Sessions: %{customdata[0]} (%{customdata[1]} of total)<extra></extra>",
+))
+fig_channel.add_vline(x=view_rate, line_dash="dash", line_color="#6b7280",
+                      annotation_text=f"site avg {view_rate:.1f}%",
+                      annotation_position="top")
+fig_channel.update_layout(
+    height=max(260, 46 * len(_ch_plot) + 80), showlegend=False,
+    paper_bgcolor="white", plot_bgcolor="white",
+    margin=dict(l=10, r=40, t=30, b=10),
+    xaxis=dict(title="% of sessions reaching a product page",
+               range=[0, max(float(_ch_plot["view_pct"].max()), view_rate) * 1.2]),
+)
+
+# Category chart (E2) — view → cart rate per category, worst at the top,
+# benchmark as a reference line. Below-benchmark bars are highlighted.
+fig_category = go.Figure(go.Bar(
+    y=category_tbl["item_category"].tolist(),
+    x=category_tbl["atc_pct"].round(1).tolist(),
+    orientation="h",
+    text=[f"{v:.1f}%" for v in category_tbl["atc_pct"]],
+    texttemplate="%{text}", textposition="outside",
+    marker_color=["#ea580c" if v < category_benchmark else "#4C78A8"
+                  for v in category_tbl["atc_pct"]],
+    customdata=[[f"{int(v):,}", f"{int(k):,}"] for v, k in
+                zip(category_tbl["viewing_sessions"], category_tbl["carts_at_stake"])],
+    hovertemplate="<b>%{y}</b><br>View → Cart: %{x:.1f}%"
+                  "<br>Viewing sessions: %{customdata[0]}"
+                  "<br>Carts at stake: %{customdata[1]}<extra></extra>",
+))
+fig_category.add_vline(x=category_benchmark, line_dash="dash", line_color="#6b7280",
+                       annotation_text=f"benchmark {category_benchmark:.1f}%",
+                       annotation_position="top")
+fig_category.update_layout(
+    height=max(300, 30 * len(category_tbl) + 80), showlegend=False,
+    paper_bgcolor="white", plot_bgcolor="white",
+    margin=dict(l=10, r=40, t=30, b=10),
+    yaxis=dict(autorange="reversed"),   # lowest rate at the top
+    xaxis=dict(title="% of viewing sessions that add that category to cart",
+               range=[0, (float(category_tbl["atc_pct"].max()) if len(category_tbl) else 10) * 1.2]),
+)
+
 
 # ══════════════════════════════════════════════════════════════════════════════
 # AI BRIEF
 # ══════════════════════════════════════════════════════════════════════════════
 brief_html = ""
+brief_model = "AI"
+brief_stale_note = ""
+# Date the channel (E1) and category (E2) analyses were added. A brief generated
+# before this cannot know their results and may recommend work they already did.
+BRIEF_MIN_DATE = "2026-11-12"
 brief_path = Path("product_brief_ga4_funnel.md")
 if brief_path.exists():
     brief_md   = brief_path.read_text(encoding="utf-8")
+    _gen  = re.search(r"\*Generated (\d{4}-\d{2}-\d{2})", brief_md)
+    _mdl  = re.search(r"Model: ([^·*]+)", brief_md)
+    brief_model = _html.escape(_mdl.group(1).strip()) if _mdl else "Claude"
+    if _gen and _gen.group(1) < BRIEF_MIN_DATE:
+        brief_stale_note = (
+            f'<p class="caveat-note" style="margin-bottom:16px">This brief was generated on '
+            f'{_gen.group(1)}, before the acquisition-channel and product-category analyses '
+            f'were added, so it does not reflect them and may recommend analysis that is '
+            f'already done above. Regenerate it with Section 10 of the notebook.</p>'
+        )
     brief_body = "\n".join(brief_md.splitlines()[5:])
     def md_to_html(text):
         lines, out = text.splitlines(), []
@@ -535,10 +889,126 @@ else:
 # ══════════════════════════════════════════════════════════════════════════════
 print("Assembling dashboard...")
 
-date_label    = f"Nov {DATE_START[:4]} – Jan {DATE_END[:4]}"
 wk1_display   = f"{avg_wk1}%" if avg_wk1 else "—"
 wk1_warn      = avg_wk1 is not None and avg_wk1 < 10
 retention_flag = "⚠️" if wk1_warn else ""
+
+# ── Channel narrative (E1) — the conclusion flips on the 10pp threshold ───────
+if channel_is_driver:
+    channel_verdict = (
+        f"<p><strong>Traffic mix is a real driver.</strong> The share of sessions "
+        f"reaching a product page ranges from <strong>{worst_view_pct:.1f}%</strong> "
+        f"({worst_view_channel}) to <strong>{best_view_pct:.1f}%</strong> "
+        f"({best_view_channel}) — a <strong>{channel_view_spread:.1f}pp</strong> spread. "
+        f"Part of the discovery loss is who is arriving, not only what they find.</p>"
+        f"<p>Before redesigning navigation, check what the {worst_view_channel} "
+        f"landing experience promises versus what the site shows on arrival.</p>"
+    )
+    channel_rec_problem = (
+        f"Product-page reach varies by <strong>{channel_view_spread:.1f}pp</strong> across "
+        f"channels — from {worst_view_pct:.1f}% ({worst_view_channel}) to "
+        f"{best_view_pct:.1f}% ({best_view_channel}). Acquisition quality explains part of "
+        f"the discovery gap, so budget and landing pages are levers alongside navigation."
+    )
+elif channel_borderline:
+    channel_verdict = (
+        f"<p><strong>Leaning site, not traffic — but borderline.</strong> The spread "
+        f"between {worst_view_channel} ({worst_view_pct:.1f}%) and {best_view_channel} "
+        f"({best_view_pct:.1f}%) is <strong>{channel_view_spread:.1f}pp</strong>: under "
+        f"the 10pp threshold, but close to it. Every channel still loses the large "
+        f"majority of its visitors before a product page, so navigation / discovery "
+        f"remains the leading explanation rather than a settled one.</p>"
+        f"<p>Cheap check before committing to a navigation redesign: review the "
+        f"{worst_view_channel} landing pages against what its ads promise.</p>"
+    )
+else:
+    channel_verdict = (
+        f"<p><strong>The leak is on the site, not in the traffic.</strong> No "
+        f"channel is an outlier on product-page reach: the spread between "
+        f"{best_view_channel} ({best_view_pct:.1f}%) and {worst_view_channel} "
+        f"({worst_view_pct:.1f}%) is <strong>{channel_view_spread:.1f}pp</strong>, "
+        f"well under the 10pp threshold — and every channel loses the large majority "
+        f"of its visitors before a product page.</p>"
+        f"<p>This supports the navigation / discovery hypothesis: reallocating "
+        f"acquisition budget would not fix a loss that happens equally to every "
+        f"visitor once they land.</p>"
+    )
+if notset_view_pct is not None and notset_share >= 1:
+    # Only claim "the average sits under every channel" when that is literally true.
+    _below_all = (notset_view_pct < view_rate < float(_ch_rank["view_pct"].min()))
+    channel_verdict += (
+        f"<p><strong>Unattributed sessions.</strong> {notset_share:.1f}% of sessions carry "
+        f"no session-level medium; they reach a product page at "
+        f"<strong>{notset_view_pct:.1f}%</strong> and are excluded from the spread."
+        + (f" That drags the site average ({view_rate:.1f}%) "
+           f"below every named channel — this block is worth "
+           f"investigating on its own." if _below_all else "")
+        + "</p>"
+    )
+if not channel_is_driver:
+    channel_rec_problem = (
+        f"Product-page reach is within <strong>{channel_view_spread:.1f}pp</strong> across "
+        f"channels{' (just under the 10pp threshold)' if channel_borderline else ''}, "
+        f"so discovery is mainly not a traffic-quality problem. Channels still differ "
+        f"in <em>value</em>, though — revenue per session is the remaining reason to segment."
+    )
+if top_rev_channel:
+    channel_rec_problem += (
+        f" Highest revenue per session: <strong>{top_rev_channel}</strong> "
+        f"(${top_rev_rps:,.2f})."
+    )
+channel_basis_note = (
+    "Channel = the session's own medium, taken from <code>event_params</code>."
+    if channel_dim == "session_medium" else
+    f"Session-level medium covered only {session_medium_coverage*100:.0f}% of sessions, "
+    "so channel falls back to the user's <strong>first-touch</strong> medium "
+    "(<code>traffic_source.medium</code>) — returning sessions inherit their first channel."
+)
+
+# ── Priority-3 impact — must agree with the channel verdict ───────────────────
+# Budget reallocation is only argued when channel IS the driver; otherwise the
+# impact is sized from the category gap, the lever the analysis points to.
+_cart_to_purchase = purchase_n / int(funnel_raw["step3_add_to_cart"].iloc[0])
+_cat_orders  = round(category_top3_at_stake * _cart_to_purchase)
+_cat_revenue = round(_cat_orders * aov, 0)
+if channel_is_driver:
+    rec3_impact = (
+        "Reallocating even 20% of acquisition budget from low- to high-converting "
+        "channels could improve overall CVR without increasing total spend."
+    )
+elif category_top_targets:
+    rec3_impact = (
+        f"Lifting the top {len(category_top_targets)} categories to the "
+        f"{category_benchmark:.1f}% benchmark adds ~<strong>{category_top3_at_stake:,}</strong> "
+        f"carting sessions. At today's {_cart_to_purchase*100:.1f}% cart → purchase rate and "
+        f"${aov:,.0f} AOV that is roughly <strong>~{_cat_orders:,} orders / "
+        f"${_cat_revenue:,.0f}</strong> — an upper bound, since category carts and "
+        f"session purchases are not one-to-one."
+    )
+else:
+    rec3_impact = ("No category sits meaningfully below the benchmark, so the remaining "
+                   "lever is weighting spend towards revenue per session.")
+
+# ── Category narrative (E2) ───────────────────────────────────────────────────
+if category_top_targets:
+    _targets = ", ".join(f"<strong>{c}</strong>" for c in category_top_targets)
+    category_verdict = (
+        f"<p>Ranked by <strong>carts at stake</strong> — extra carting sessions if a "
+        f"category merely converted at the {category_benchmark:.1f}% benchmark — the "
+        f"audit should start with {_targets}. Together they account for "
+        f"<strong>{category_top3_at_stake:,}</strong> of the "
+        f"<strong>{category_total_at_stake:,}</strong> carts at stake across all "
+        f"ranked categories.</p>"
+        f"<p>Ranking by volume × gap, not by rate alone, stops a niche category "
+        f"with a dramatic rate from jumping the queue ahead of a high-traffic "
+        f"category with a moderate gap.</p>"
+    )
+else:
+    category_verdict = (
+        "<p>No ranked category sits meaningfully below the benchmark — the "
+        "view → cart drop is spread evenly across the catalogue rather than "
+        "concentrated in specific product pages.</p>"
+    )
 
 html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -546,7 +1016,9 @@ html = f"""<!DOCTYPE html>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>GA4 Funnel Analysis — Product Dashboard</title>
-<script src="https://cdn.plot.ly/plotly-2.27.0.min.js"></script>
+<!-- plotly.js is embedded (not loaded from a CDN) so the file works offline and
+     the JS version always matches the Python plotly package that built the figures. -->
+<script type="text/javascript">{get_plotlyjs()}</script>
 <style>
   *, *::before, *::after {{ box-sizing: border-box; margin: 0; padding: 0; }}
   body {{ font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
@@ -847,8 +1319,8 @@ html = f"""<!DOCTYPE html>
         suggests some high-value orders are pulling the average up. Total
         revenue in the window: <strong>${total_revenue:,.0f}</strong> from
         <strong>{purchase_n:,} purchasing sessions</strong>.
-        Segmenting high-value users by acquisition channel could reveal
-        which traffic sources drive disproportionate revenue.
+        Revenue per session by channel is broken out in the Acquisition
+        Channel section below.
       </div>
     </div>
 
@@ -859,7 +1331,7 @@ html = f"""<!DOCTYPE html>
       <div class="finding-body">
         Purchase conversion differs by only <strong>{device_gap:.2f} percentage
         points</strong> between desktop, mobile and tablet. A mobile-first
-        redesign — the intuitive response to a 0.8% conversion rate — would not
+        redesign — the intuitive response to a {overall_cvr:.1f}% conversion rate — would not
         have moved the number. Effort belongs in discovery and lifecycle, not
         device-specific checkout work.
       </div>
@@ -945,7 +1417,7 @@ html = f"""<!DOCTYPE html>
         mobile and tablet. The funnel leaks at the same rate regardless of how
         users reach the site.</p>
         <p><strong>This is reported precisely because it is a null result.</strong>
-        The intuitive next step after seeing an 0.8% conversion rate is a
+        The intuitive next step after seeing a {overall_cvr:.1f}% conversion rate is a
         mobile-first redesign. The data says that work would not have moved the
         number — the leak is upstream of device, in discovery.</p>
         <p class="caveat-note">Shown as a table, not a chart: three series
@@ -953,6 +1425,69 @@ html = f"""<!DOCTYPE html>
         the reader to hunt for a difference that isn't there.</p>
       </div>
     </div>
+  </div>
+
+  <!-- ── Acquisition channel (E1) ───────────────────────────────────────── -->
+  <p class="section-label">Acquisition Channel — Is Discovery a Traffic Problem?</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div>{chart_div(fig_channel, "chart-channel")}</div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        {channel_verdict}
+        <p class="caveat-note">{channel_basis_note} The public sample obfuscates
+        some values (<code>&lt;Other&gt;</code>, <code>(data deleted)</code>);
+        they are kept as reported rather than guessed.</p>
+      </div>
+    </div>
+    <table class="dev-table" style="margin-top:20px">
+      <thead>
+        <tr>
+          <th>Channel</th><th>Sessions</th><th>Share</th><th>→ View Item</th>
+          <th>View → Cart</th><th>Purchase</th><th>Rev / Session</th>
+        </tr>
+      </thead>
+      <tbody>
+{channel_rows_html}
+      </tbody>
+    </table>
+    <p style="font-size:0.75rem;color:#9ca3af;margin-top:10px">
+      * fewer than 30 purchases — the <em>purchase</em> and revenue columns are too
+      noisy to compare. View-item rates rest on session counts and are unaffected.
+      Channels under 1% of sessions are grouped.</p>
+  </div>
+
+  <!-- ── Product category (E2) ──────────────────────────────────────────── -->
+  <p class="section-label">Product Category — Where Interest Fails to Become Intent</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div>{chart_div(fig_category, "chart-category")}</div>
+      <div class="insight-panel">
+        <h4>Where to start the product-page audit</h4>
+        {category_verdict}
+        <p class="caveat-note">A session counts for a category only if it added an
+        item <em>of that category</em> after viewing it, so rates are stricter than
+        the {shoppers_atc:.0f}% shoppers figure and rows are not additive.
+        Categories with fewer than {MIN_CATEGORY_VIEWS:,} viewing sessions
+        ({category_excluded_n} excluded) and <code>(not set)</code>
+        ({category_notset_share:.1f}% of category views) are not ranked.
+        Labels are normalised to their last path segment
+        (<code>Lifestyle/Bags/</code> → <code>Bags</code>): {category_raw_labels} raw
+        labels collapse into {len(category_raw)} categories, {category_merged_groups} of
+        them merged from more than one label.</p>
+      </div>
+    </div>
+    <table class="dev-table" style="margin-top:20px">
+      <thead>
+        <tr>
+          <th>Category</th><th>Viewing sessions</th><th>Carting sessions</th>
+          <th>View → Cart</th><th>Carts at stake</th>
+        </tr>
+      </thead>
+      <tbody>
+{category_rows_html}
+      </tbody>
+    </table>
   </div>
 
   <!-- ── Cohort retention ────────────────────────────────────────────────── -->
@@ -970,9 +1505,9 @@ html = f"""<!DOCTYPE html>
         <p>Week-1 retention of <strong>{wk1_display}</strong> is
         {"significantly below the ~20% benchmark" if wk1_warn else "approaching benchmark levels"}.
         Most users who visit once do not come back.</p>
-        <p><strong>Likely causes:</strong> no triggered email or push
-        re-engagement, traffic from low-intent channels, or a first
-        session that didn't reach a product.</p>
+        <p><strong>Possible causes</strong> (this dataset cannot tell them
+        apart): no triggered email or push re-engagement, traffic from
+        low-intent channels, or a first session that didn't reach a product.</p>
         <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
         the % of activated users who return within 7 days. The intervention
         is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
@@ -1033,7 +1568,8 @@ html = f"""<!DOCTYPE html>
         <div class="rec-section-label">Problem</div>
         <p>Week-1 retention of <strong>{wk1_display}</strong> means the vast majority of
         acquired users visit once and never return — well below the ~20% benchmark for
-        healthy e-commerce cohorts. No post-visit re-engagement mechanism is in place.</p>
+        healthy e-commerce cohorts. This dataset cannot show whether any re-engagement
+        (email, push, remarketing) was running; if none was, it is the first thing to test.</p>
       </div>
 
       <div class="rec-section">
@@ -1047,42 +1583,37 @@ html = f"""<!DOCTYPE html>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>The Oct 26 cohort benchmarks at <strong>~11% retention</strong> with a high-intent
-        organic audience — confirming the site can retain engaged users.
-        Even a modest lift from 4.4% to 8% Week-1 retention compounds across all new cohorts
-        and multiplies total session volume without increasing acquisition spend.</p>
-        <div class="metric">Week-1 cohort retention rate (target: &gt;8%)</div>
+        <p>Lifting Week-1 retention from today's <strong>{wk1_display}</strong> average to
+        <strong>{WK1_TARGET:.0f}%</strong> would have brought back
+        ~<strong>{wk1_extra_users:,}</strong> more users in their second week, across the
+        {wk1_n_cohorts} full cohorts ({wk1_base_users:,} first-time users) observed in this
+        window — repeat sessions that need no extra acquisition spend.</p>
+        <div class="metric">Week-1 cohort retention rate (target: &gt;{WK1_TARGET:.0f}%)</div>
       </div>
     </div>
 
     <div class="rec">
       <span class="rec-priority p3">Priority 3 · Investigate</span>
-      <h4>Segment by traffic source</h4>
+      <h4>Act on the channel and category splits</h4>
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p><strong>${total_revenue:,.0f} total revenue</strong> came from just
-        {purchase_n:,} sessions — but the mean/median AOV gap (${aov:,.0f} vs ${median_order:,.0f})
-        suggests a small segment of high-value buyers is driving disproportionate revenue.
-        Currently there is no visibility into which acquisition channels produce buyers
-        versus browsers.</p>
+        <p>{channel_rec_problem}</p>
       </div>
 
       <div class="rec-section">
         <div class="rec-section-label">Recommended Actions</div>
-        <p>Break down session → purchase conversion rate and average order value by
-        <code>traffic_source.medium</code>. Identify which channels — paid search,
-        organic, email, referral — drive purchasers. Then cross-check which channels
-        produce high-AOV buyers vs high-volume low-intent traffic.</p>
+        <p>Start the product-page audit with
+        {", ".join(category_top_targets) if category_top_targets else "the lowest view → cart categories"}
+        (see Product Category above): review content, pricing and trust signals on
+        their highest-traffic pages. On the channel side, weight acquisition spend
+        towards revenue per session, not session volume.</p>
       </div>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>Reallocating even 20% of acquisition budget from low-converting to
-        high-converting channels could meaningfully improve overall CVR without
-        increasing total spend. If one channel converts at 2× the average,
-        doubling investment there has immediate revenue impact.</p>
-        <div class="metric">revenue per session by traffic_source.medium</div>
+        <p>{rec3_impact}</p>
+        <div class="metric">revenue per session by channel · view → cart in target categories</div>
       </div>
     </div>
 
@@ -1091,39 +1622,42 @@ html = f"""<!DOCTYPE html>
   {f'''
   <!-- AI Product Brief -->
   <p class="section-label">AI-Generated Product Brief
-    <span class="ai-badge">Claude</span></p>
+    <span class="ai-badge">{brief_model}</span></p>
   <div class="card">
+    {brief_stale_note}
     <div class="brief-body">{brief_html}</div>
   </div>
   ''' if brief_html else ""}
 
-  <!-- ── Report Automation ──────────────────────────────────────────────── -->
-  <p class="section-label">AI-Augmented Report Automation</p>
+  <!-- ── How the AI brief is produced ───────────────────────────────────── -->
+  <!-- Describes what the code actually does: the brief is written in notebook
+       Section 10 and reviewed; this script only embeds it. -->
+  <p class="section-label">AI-Augmented Reporting — How the Brief Is Produced</p>
   <div class="card">
     <p style="font-size:0.87rem;color:#4b5563;margin-bottom:20px;line-height:1.7">
-      This pipeline goes beyond a standard scheduled script. It combines a
-      <strong>parameterised Python data pipeline</strong> with a
-      <strong>large language model (Claude, via Anthropic API)</strong> to produce
-      two distinct outputs on every run: structured interactive charts from BigQuery data,
-      and a freshly written AI product brief that reads the new numbers and generates
-      updated analysis, hypotheses, and recommendations in natural language —
-      automatically, without a human analyst in the loop.
+      This page is built in two separate steps. A <strong>parameterised Python
+      script</strong> (<code>generate_dashboard.py</code>) recomputes every query, chart
+      and number shown here. The written <strong>product brief</strong> is produced
+      in Section 10 of the analysis notebook by a large language model, reviewed by
+      the analyst, and then embedded in this page.
     </p>
     <div class="two-col" style="gap:24px">
       <div>
         <div class="insight-panel">
           <h4>Where the LLM fits in</h4>
-          <p>After all BigQuery queries complete, the pipeline packages the results —
-          funnel rates, revenue metrics, cohort retention figures — into a structured
-          JSON context and sends them to the Claude API with a prompt instructing it to
-          act as a senior product analyst.</p>
-          <p>The LLM does not read raw data or SQL. It receives curated, computed metrics
-          and produces a <strong>free-text product brief</strong>: executive summary,
-          key findings ranked by confidence, hypotheses with reasoning, and recommended
-          actions. This output is different every run because the underlying numbers change.</p>
-          <p>This is distinct from a rule-based template ("if CVR &lt; 1% then show warning"):
-          the model reasons over the data holistically, surfaces non-obvious patterns,
-          and frames findings in business language without being explicitly programmed to do so.</p>
+          <p>Notebook Section 10 packages the computed results — funnel rates,
+          revenue, device, channel and category splits, cohort retention — as
+          structured JSON and sends them to an LLM: Claude (Anthropic API) when an
+          Anthropic key is set, otherwise Gemini as a free alternative. The model
+          used is named on the brief.</p>
+          <p>The LLM never sees raw events or SQL. It receives curated, computed
+          metrics and writes the executive summary, findings, hypotheses and
+          recommended actions. Keeping it downstream of verified numbers means it
+          interprets results rather than calculating them.</p>
+          <p>Unlike a rule-based template ("if CVR &lt; 1% then show warning"), the
+          model frames the findings in business language. Its output is reviewed
+          before publishing, and this page marks a brief as out of date if it was
+          generated before the latest analyses were added.</p>
         </div>
       </div>
       <div>
@@ -1132,20 +1666,20 @@ html = f"""<!DOCTYPE html>
           <p style="font-family:monospace;font-size:0.81rem;background:#f3f4f6;padding:14px 16px;border-radius:8px;line-height:2.1;color:#1f2937">
             GA4 BigQuery Export<br>
             &nbsp;&nbsp;&nbsp;↓ SQL · partition-pruned queries<br>
-            Computed metrics (Python)<br>
-            &nbsp;&nbsp;&nbsp;↓ structured JSON context<br>
-            <strong>Claude API (LLM)</strong><br>
-            &nbsp;&nbsp;&nbsp;↓ natural-language product brief<br>
-            generate_dashboard.py<br>
-            &nbsp;&nbsp;&nbsp;↓ Plotly charts + AI brief → HTML<br>
+            Computed metrics (pandas)<br>
+            &nbsp;&nbsp;&nbsp;├→ notebook §10 → <strong>LLM (Claude / Gemini)</strong><br>
+            &nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;→ product brief → analyst review<br>
+            &nbsp;&nbsp;&nbsp;└→ generate_dashboard.py → Plotly charts<br>
+            &nbsp;&nbsp;&nbsp;↓ charts + reviewed brief → HTML<br>
             dashboard.html → Stakeholders
           </p>
           <p style="margin-top:14px;font-size:0.83rem;color:#374151">
-            Change <code>DATE_START</code>, <code>DATE_END</code>, and <code>DATASET</code>
-            at the top of the script — then run
-            <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>.
-            Every chart, metric, and AI insight refreshes in under 60 seconds.
-            Schedule via cron, Cloud Scheduler, or Airflow for weekly delivery.
+            Change <code>DATE_START</code>, <code>DATE_END</code> and <code>DATASET</code>
+            at the top of the script and run
+            <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>
+            to recompute every query, chart and number on this page. Re-run notebook
+            Section 10 to refresh the brief. The script step can be scheduled; the
+            brief step deliberately keeps a human reviewer in the loop.
           </p>
         </div>
         <div class="opportunity" style="margin-top:12px">
