@@ -2,7 +2,7 @@
 
 How to regenerate, verify, publish, and present the GA4 Funnel Analysis dashboard.
 
-**Repo:** https://github.com/guiarpi/funnel-analysis
+**Repo:** https://github.com/guiarpi/ga4-product-analytics
 **Output:** `dashboard.html` — a single self-contained file, no server required.
 
 ---
@@ -16,8 +16,7 @@ How to regenerate, verify, publish, and present the GA4 Funnel Analysis dashboar
 5. [Publishing it live](#5-publishing-it-live)
 6. [Making the README sell it](#6-making-the-readme-sell-it)
 7. [Design principles behind the dashboard](#7-design-principles-behind-the-dashboard)
-8. [Presenting it in an interview](#8-presenting-it-in-an-interview)
-9. [Adapting it to a new dataset](#9-adapting-it-to-a-new-dataset)
+8. [Adapting it to a new dataset](#8-adapting-it-to-a-new-dataset)
 
 ---
 
@@ -65,11 +64,7 @@ gcloud auth application-default login
 gcloud config set project YOUR_PROJECT_ID
 ```
 
-**Alternative — service account key:**
-
-```bash
-export GOOGLE_APPLICATION_CREDENTIALS="$HOME/path/to/google_creds.json"
-```
+No service-account key file is used or needed for local runs.
 
 ### Security rules — non-negotiable for a public repo
 
@@ -91,7 +86,7 @@ export GOOGLE_APPLICATION_CREDENTIALS="$HOME/path/to/google_creds.json"
 
 ### Cost control
 
-The dataset is ~3 months of events. Each full run of the script executes ~6
+The dataset is ~3 months of events. Each full run of the script executes 9
 queries. Keep costs near zero:
 
 - BigQuery's free tier covers 1 TB of query processing per month.
@@ -108,7 +103,7 @@ queries. Keep costs near zero:
 ## 3 · Regenerating the dashboard
 
 ```bash
-cd "/Users/guilhermearpi/Documents/Claude/Projects/Funnel Analysis"
+cd ga4-product-analytics
 python generate_dashboard.py
 ```
 
@@ -119,11 +114,17 @@ Connected  |  20201101 → 20210131
 Querying session funnel...
 Querying unique users...
 Querying revenue...
+Querying device breakdown...
+Querying acquisition channel breakdown...
 Querying shoppers funnel...
+Querying product category view → cart...
 Querying time-to-convert...
 Querying cohort retention...
 Computing insights...
-✓ dashboard.html written
+AI product brief included.
+Assembling dashboard...
+
+Done → dashboard.html  (~4800 KB)
 ```
 
 Then open it:
@@ -161,7 +162,7 @@ DATE_END   = "20210131"
 
 Both are `YYYYMMDD` strings matching the `events_YYYYMMDD` table suffix. Every
 query and every narrative number updates automatically — nothing is hardcoded
-downstream. Demonstrating this to an interviewer is a strong moment.
+downstream.
 
 > **Watch the cohort boundary.** Cohorts are bucketed with
 > `DATE_TRUNC(..., WEEK(MONDAY))`. If `DATE_START` is not a Monday, the first
@@ -207,7 +208,7 @@ undoes the credibility the rest of the dashboard earns.
 
 - [ ] Opens correctly from `file://` with no console errors (⌘⌥I in Chrome)
 - [ ] Renders on a 1280px laptop screen without horizontal scroll
-- [ ] File size is reasonable (~1–3 MB with Plotly bundled)
+- [ ] File size is reasonable (~5 MB — plotly.js is embedded so the page works offline)
 - [ ] No credentials, project IDs, or internal paths visible in the HTML source
 
 Quick automated sweep:
@@ -237,7 +238,7 @@ git push
 
 Then: **repo → Settings → Pages → Source: `main` / `/docs` → Save.**
 
-Live at `https://guiarpi.github.io/funnel-analysis/` within a minute.
+Live at `https://guiarpi.github.io/ga4-product-analytics/` within a minute.
 
 Add a build step to the script so `docs/index.html` never goes stale:
 
@@ -281,7 +282,7 @@ mv ~/Desktop/Screen*.png assets/dashboard-preview.png
 In the README:
 
 ```markdown
-[**→ View the live interactive dashboard**](https://guiarpi.github.io/funnel-analysis/)
+[**→ View the live interactive dashboard**](https://guiarpi.github.io/ga4-product-analytics/)
 
 ![Dashboard preview](assets/dashboard-preview.png)
 ```
@@ -340,66 +341,7 @@ height — adding a colour gradient for the same variable adds noise.
 
 ---
 
-## 8 · Presenting it in an interview
-
-### The 60-second walkthrough
-
-> "I analysed 355,000 sessions of GA4 e-commerce data in BigQuery to find where
-> the funnel leaks. Session-to-purchase conversion is 0.8%, but the interesting
-> part is *where* the loss happens: 79% of sessions never reach a product page
-> at all. Once someone views a product, the rest of the funnel performs
-> reasonably — checkout-to-purchase is above 50%.
->
-> That reframes the priority. The instinct is usually to optimise checkout, but
-> the data says checkout isn't the problem — discovery is. I sized it: a 5-point
-> improvement in the session-to-product-view rate is worth roughly 640 extra
-> orders, about $50K a quarter at current AOV.
->
-> The whole thing regenerates from a single script — change two date constants
-> and every query, chart, and number updates."
-
-### Questions you should expect
-
-**"Why session-scoped rather than user-scoped?"**
-It matches how GA4 reports conversion and avoids a past purchaser carrying over
-into every future session, which inflates rates. User-scoped answers a different
-question — lifetime conversion — and I'd run it alongside, not instead.
-
-**"How do you know the order of events is real?"**
-The SQL enforces sequence with timestamp comparisons, not just presence. A
-session only counts at `add_to_cart` if its first `add_to_cart` came after its
-first `view_item`, which came after `session_start`. Without that you'd count
-out-of-order events as conversions.
-
-**"Your projection assumes marginal traffic converts like existing traffic —
-does it?"**
-Almost certainly not; incremental traffic usually converts worse. I'd treat
-$50K as the optimistic bound and run a sensitivity range at 50% and 75% of the
-observed rate before committing to a target.
-
-**"What are the limitations of this data?"**
-It's an obfuscated public sample, so absolute revenue isn't meaningful. There's
-no user-level marketing spend, so I can't compute ROAS or true CAC. And the
-window is three months over a holiday period, so seasonality is baked into every
-number. The *methodology* transfers; the specific figures shouldn't be quoted as
-benchmarks.
-
-**"What would you do next?"**
-Segment the top-of-funnel drop by traffic source. If the 79% is concentrated in
-a few paid channels, it's a targeting and landing-page problem and the fix is in
-acquisition. If it's uniform across sources, it's a site navigation problem.
-Those are different teams and different budgets — that's the next query I'd run.
-
-### Have a defensible answer for every anomaly
-
-If a number looks odd on your own dashboard, an interviewer will ask about it.
-The strongest possible answer is *"that's a data artifact and here's why"* —
-knowing when a spike isn't real is a core analyst skill. The weakest is a
-confident causal story that turns out to be a boundary effect.
-
----
-
-## 9 · Adapting it to a new dataset
+## 8 · Adapting it to a new dataset
 
 To point this at a real company's GA4 export:
 
@@ -416,7 +358,7 @@ computed from the query results, so it adapts without further edits.
 
 ### The B2B SaaS translation
 
-Worth being able to recite, since it's what a SaaS interviewer is really asking:
+How the e-commerce funnel maps onto a SaaS product:
 
 | E-commerce | B2B SaaS equivalent |
 |---|---|
@@ -435,4 +377,4 @@ sizing, prioritised recommendations — is identical. Only the event names chang
 
 ---
 
-*Last updated: 25 August 2026*
+*Last updated: 12 November 2026*
