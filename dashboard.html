@@ -4525,49 +4525,39 @@ return Plotly;
     <span class="ai-badge">Gemini (gemini-3.5-flash)</span></p>
   <div class="card">
     
-    <div class="brief-body"><p><em>Note: The insights below are derived from the GA4 public e-commerce sample dataset (Nov 2020 – Jan 2021) and serve as a tactical framework. All findings must be validated against internal production data before engineering allocation.</em></p>
-<hr>
-<h3>Executive Summary</h3>
-<p>The primary revenue leak is at the very top of the funnel: <strong>78.8% of sessions drop off before ever viewing a product page</strong> (in B2B SaaS terms, users log in but fail to reach key feature discovery). Once a user views a product, purchase intent rises dramatically—converting to cart at 19.7%—meaning growth efforts should focus on landing page navigation and fixing underperforming product categories rather than downstream checkout optimization. </p>
+    <div class="brief-body"><h3>Executive Summary</h3>
+<p>The primary growth bottleneck on the platform is a drop-off prior to intent: 78.8% of sessions end before a user reaches a single product detail page (PDP), and product pages in high-volume categories like YouTube merch, Apparel, and Bags underperform the category carting benchmark (converting at 15.65%–19.12% vs. the 24.99% benchmark). Fixing top-of-funnel navigation to product discovery and optimizing low-converting PDP elements (imagery, sizing, pricing visibility) will unlock immediate revenue lift. </p>
+<p><em>Note: Findings are derived from a public GA4 sample dataset (Nov 2020 – Jan 2021) and must be validated against internal telemetry before committing engineering resources.</em></p>
 <hr>
 <h3>Key Findings</h3>
-<li><strong>Massive Top-of-Funnel Discovery Leak</strong>: Only 21.2% of sessions reach `view_item` (75,261 of 354,857 sessions), leaving a 78.8% drop-off at entry. <em>(SaaS equivalent: 78.8% of logged-in sessions fail to discover or engage with a core feature).</em></li>
-<p>   <em> </em>So what:* The top priority is getting users from entry to their first product/feature view faster; downstream steps perform relatively well.</p>
-<li><strong>Product Views Multiply Purchase Intent by 4.7x</strong>: Add-to-cart rates jump from 4.2% across all sessions to 19.7% among users who view a product page. Furthermore, converting users move fast (median time from session start to purchase is just 15.6 minutes).</li>
-<p>   <em> </em>So what:* Users who find products buy quickly in a single session. Navigation friction—not hesitation—is the main blocker.</p>
-<li><strong>High-Traffic Categories Drag Down Conversion</strong>: The overall category view-to-cart benchmark is 24.99%, but top-trafficked categories fall far short: <strong>YouTube</strong> (15.65%), <strong>Apparel</strong> (19.12%), and <strong>Bags</strong> (17.58%).</li>
-<p>   <em> </em>So what:* Fixing merchandising and layouts in just these three categories will recover <strong>1,185 lost carts</strong> without requiring additional traffic acquisition.</p>
-<li><strong>Retention is Critically Low</strong>: Week 1 cohort return rate is 4.23%, decaying to 1.89% by Week 2.</li>
-<p>   <em> </em>So what:* Conversion is overwhelmingly driven by single-session impulse decisions rather than multi-session consideration cycles. We must capture intent immediately upon landing.</p>
-<li><strong>Referral Leads Valid Acquisition Channels</strong>: Referral traffic delivers the highest valid product discovery (30.28% `view_item` rate) and revenue per session ($1.28), outperforming Organic search (26.32% `view_item`, $0.58).</li>
-<p>   <em> </em>So what:<em> High-intent referral traffic should be prioritized for co-marketing and landing page optimization. </em>(Note: CPC and smaller channels were excluded from revenue evaluation due to low purchase volume flags).*</p>
+<li><strong>78.8% of site sessions drop off before viewing any product page.</strong> Out of 354,857 total sessions, only 75,261 (21.2%) record a `view_item` event. <em>So what:</em> Users encounter severe discovery friction on entry points. In B2B SaaS, this corresponds to users logging in (`session_start`) but failing to discover key features (`view_item`).</li>
+<li><strong>High-volume product categories severely underperform the 24.99% view-to-cart benchmark.</strong> PDPs for YouTube merchandise (15.65% view-to-cart), Apparel (19.12%), and Bags (17.58%) leave 1,185 cart additions on the table combined. <em>So what:</em> Product detail pages for these specific categories are failing to convert user interest into buying intent due to PDP-specific issues (e.g., pricing, missing sizing info, inadequate imagery, or out-of-stock variants).</li>
+<li><strong>Cart-to-checkout drop-off reaches 65.0%.</strong> Of the 14,870 sessions that reach `add_to_cart`, only 5,205 (35.0%) move to `begin_checkout`. <em>So what:</em> High-intent shoppers are abandoning at the cart stage, pointing to cart drawer friction, unexpected shipping fees, or lack of guest checkout options.</li>
+<li><strong>Referral traffic generates the highest intent and revenue per session.</strong> Referral sessions achieve a 30.28% product view rate, a 1.72% purchase rate, and $1.28 revenue per session—far outperforming Organic traffic (26.32% view rate, 0.90% purchase rate, $0.58 rev/session). <em>So what:</em> External link partners are sending higher-intent traffic; referral entry experiences should be protected and optimized. <em>(Note: CPC and `(not set)` purchase metrics were excluded from comparison due to low volume flags).</em></li>
 <hr>
 <h3>Hypotheses</h3>
-<li><strong>[HIGH] Category page layout and merchandising on major categories (YouTube, Apparel, Bags) fail to drive clicks to individual product pages.</strong></li>
-<p>   <em> </em>Reasoning:* Users who reach product pages convert strongly, but large categories underperform the 25% view-to-cart benchmark by up to 9.3 percentage points. Poor thumbnail selection, lack of quick-view, or bad sorting is killing product discovery.</p>
-<li><strong>[MEDIUM] Homepage and campaign landing pages lack immediate product exposure, forcing users through deep navigation menus.</strong></li>
-<p>   <em> </em>Reasoning:* The 8.71 percentage point spread across medium channels in `view_item` combined with the 78.8% initial drop-off points to a site-wide navigation issue where visitors aren't instantly greeted with relevant items.</p>
-<li><strong>[LOW] Device-specific technical issues are suppressing mobile conversion.</strong></li>
-<p>   <em> </em>Reasoning:* Purchase conversion rates across devices are practically flat (Desktop: 0.75%, Mobile: 0.80%, Tablet: 0.77%), ruling out mobile-specific UI/UX bugs as a root cause.</p>
+<li><strong>[HIGH] Category PDP Content & Variant Gaps:</strong> Product detail pages for YouTube, Apparel, and Bags lack critical decision-making assets (such as clear size charts, customer reviews, detailed descriptions, or stock availability), causing product-page visitors to abandon before adding to cart.</li>
+<li><strong>[HIGH] Homepage & Category Navigation Disconnect:</strong> The homepage layout and global navigation fail to guide top-of-funnel traffic toward product catalog pages, driving 78.8% of sessions to exit without viewing a single product.</li>
+<li><strong>[MEDIUM] Cart Cost Transparency Shock:</strong> Shoppers use the cart to calculate total order cost; uncalculated shipping fees and taxes inside the cart drawer create friction, driving the 65.0% drop-off between `add_to_cart` and `begin_checkout`.</li>
 <hr>
 <h3>Recommended Actions</h3>
-<p>### 1. Merchandising & UX Overhaul for Top Underperforming Categories</p>
-<p><em> <strong>What to do:</strong> Redesign category landing pages for </em>YouTube<em>, </em>Apparel<em>, and </em>Bags*. Introduce "Quick View" modals directly from category grids, optimize default sort orders toward top sellers, and improve thumbnail visual quality.</p>
-<li><strong>Why:</strong> These three categories account for 1,185 lost carts relative to benchmark performance.</li>
-<li><strong>Metric to watch:</strong> Category `view_to_cart_pct` (Target: reach the 24.99% benchmark) and total cart additions.</li>
-<p>### 2. Implement Direct Product Showcase on High-Traffic Entry Pages</p>
-<li><strong>What to do:</strong> Feature dynamic "Top Selling Products" and direct-to-cart widgets on the homepage and high-volume landing pages to collapse the distance between landing and product discovery.</li>
-<li><strong>Why:</strong> 78.8% of sessions exit without viewing a product; shortening the click path to `view_item` leverages the 4.7x intent boost seen in product viewers.</li>
-<li><strong>Metric to watch:</strong> Session to `view_item` conversion rate (Target: lift from 21.2% to 28.0%).</li>
-<p>### 3. Deploy In-Session Urgency & Recommendation Triggers</p>
-<li><strong>What to do:</strong> Add lightweight, non-intrusive contextual pop-ups or bottom bars highlighting trending products for sessions spending >45 seconds on non-product pages.</li>
-<li><strong>Why:</strong> Week 2 retention drops to 1.89%, and median purchase time is 15.6 minutes—we cannot rely on retargeting users who bounce; we must convert them in the active session.</li>
-<li><strong>Metric to watch:</strong> Same-session purchase conversion rate (Target: lift overall conversion from 0.8% to 1.1%).</li>
+<li><strong>Optimize PDP Assets for YouTube, Apparel, and Bags Categories</strong></li>
+<p>   * <strong>What to do:</strong> Overhaul product detail pages for these three categories by adding prominent sizing charts, expanded photo galleries, explicit stock availability, and social proof.</p>
+<p>   * <strong>Why:</strong> YouTube (15.65%), Apparel (19.12%), and Bags (17.58%) represent the largest concentration of missed carts (1,185 carts at stake) against the 24.99% benchmark.</p>
+<p>   * <strong>Metric to watch:</strong> Category-specific `view_to_cart_pct` (target: 25.0%+).</p>
+<li><strong>Streamline Top-of-Nav Discovery Paths</strong></li>
+<p>   * <strong>What to do:</strong> Redesign the homepage above-the-fold experience to feature direct category grids, personalized recommendations, and search bar prompts.</p>
+<p>   * <strong>Why:</strong> 78.8% of sessions currently drop off before reaching a product page. (In SaaS terms: improving onboarding flows to move users from login directly into core feature adoption).</p>
+<p>   * <strong>Metric to watch:</strong> `Session Start` -> `View Item` conversion rate (target: 30.0%+ from 21.2%).</p>
+<li><strong>Add Upfront Cost Estimates & Quick-Checkout in the Cart</strong></li>
+<p>   * <strong>What to do:</strong> Implement dynamic shipping calculators within the cart drawer alongside express payment options (e.g., Apple Pay, Shop Pay).</p>
+<p>   * <strong>Why:</strong> 65.0% of carting sessions fail to enter checkout, indicating friction between item selection and purchase initiation.</p>
+<p>   * <strong>Metric to watch:</strong> `Add to Cart` -> `Begin Checkout` conversion rate (target: 45.0%+ from 35.0%).</p>
 <hr>
 <h3>What to Measure Next</h3>
-<li><strong>Search & Menu Navigation Path Analysis:</strong> Run an internal clickstream analysis on the 78.8% of non-product viewing sessions to determine exact exit pages (e.g., header menu vs. search bar vs. footer) to pinpoint structural navigation failures.</li>
-<li><strong>Page Load Speed vs. Category Drop-off Correlation:</strong> Audit technical performance (Core Web Vitals) specifically across <em>YouTube</em>, <em>Apparel</em>, and <em>Bags</em> pages to confirm if slow asset rendering is driving high early bounce.</li>
-<li><strong>First-Time vs. Returning User Funnel Segmentation:</strong> Break down the funnel by new vs. returning visitors to test whether the 15.6-minute fast-conversion pattern is isolated to repeat buyers or applies across all user segments.</li></div>
+<li><strong>Cart Interaction & Error Logging:</strong> Run an event-level analysis on cart drawer interactions (promo code field usage, shipping estimation triggers, line-item deletions) to pinpoint why 65.0% of cart sessions fail to begin checkout.</li>
+<li><strong>Traffic Audit on `(not set)` Medium:</strong> Investigate the 92,892 sessions logged as `(not set)` medium (which show a very low 6.68% `view_item` rate) to determine if this represents broken UTM tagging, dark social traffic, or web crawler bots.</li>
+<li><strong>Cross-Sell Potential from Top-Performing Categories:</strong> Analyze basket composition for high-converting PDP categories (e.g., Hats at 40.62% `view_to_cart` and Writing at 40.88%) to evaluate whether bundling them onto underperforming PDPs boosts total cart additions.</li></div>
   </div>
   
 

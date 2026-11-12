@@ -226,27 +226,23 @@ interpolate.
 
 A downloadable `.html` gets opened far less often than a link. Publish it.
 
-### GitHub Pages (free, ~2 minutes)
+### GitHub Pages (set up — serves `main` at the repo root)
 
-```bash
-mkdir -p docs
-cp dashboard.html docs/index.html
-git add docs/
-git commit -m "Publish interactive dashboard via GitHub Pages"
-git push
-```
+Pages publishes the `main` branch as-is, so there is no copy to keep in sync:
 
-Then: **repo → Settings → Pages → Source: `main` / `/docs` → Save.**
+- `dashboard.html` → `https://guiarpi.github.io/ga4-product-analytics/dashboard.html`
+- `index.html` is a one-line redirect, so the short URL
+  `https://guiarpi.github.io/ga4-product-analytics/` opens the dashboard too.
+- `.nojekyll` (empty file) stops GitHub running Jekyll over the repo. Without it,
+  the `{{ }}` examples in this guide can break the Pages build.
 
-Live at `https://guiarpi.github.io/ga4-product-analytics/` within a minute.
+**To update the live dashboard:** regenerate, commit `dashboard.html`, push.
+Pages redeploys within a minute or two. Check the run under the repo's
+**Actions** tab ("pages build and deployment") if it doesn't change.
 
-Add a build step to the script so `docs/index.html` never goes stale:
-
-```python
-import shutil
-shutil.copy(OUTPUT, Path("docs/index.html"))
-print("✓ docs/index.html updated for GitHub Pages")
-```
+To set it up from scratch on a fork: **repo → Settings → Pages → Source:
+Deploy from a branch → `main` / `(root)` → Save**, or
+`gh api repos/<owner>/<repo>/pages -X POST -f "source[branch]=main" -f "source[path]=/"`.
 
 ### Put the link where it gets seen
 
