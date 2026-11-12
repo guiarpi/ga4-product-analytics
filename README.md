@@ -4,6 +4,10 @@ End-to-end product analytics project built on Google Analytics 4 (GA4) data in B
 
 **Dataset:** [`bigquery-public-data.ga4_obfuscated_sample_ecommerce`](https://console.cloud.google.com/bigquery?p=bigquery-public-data&d=ga4_obfuscated_sample_ecommerce) · Nov 2020 – Jan 2021
 
+**[→ View the live interactive dashboard](https://guiarpi.github.io/ga4-product-analytics/dashboard.html)**
+
+[![Dashboard preview](assets/dashboard-preview.png)](https://guiarpi.github.io/ga4-product-analytics/dashboard.html)
+
 ---
 
 ## What's in this project
@@ -12,7 +16,9 @@ End-to-end product analytics project built on Google Analytics 4 (GA4) data in B
 |---|---|
 | `ga4_funnel_analysis.ipynb` | Main analysis notebook — all SQL, charts, and commentary |
 | `generate_dashboard.py` | Runs all queries and produces a standalone `dashboard.html` |
-| `dashboard.html` | Self-contained interactive dashboard (plotly.js embedded) — open in any browser, works offline |
+| `dashboard.html` | Self-contained interactive dashboard (plotly.js embedded) — [live on GitHub Pages](https://guiarpi.github.io/ga4-product-analytics/dashboard.html), or open locally, works offline |
+| `index.html`, `.nojekyll` | GitHub Pages plumbing: redirect the site root to the dashboard, skip the Jekyll build |
+| `assets/dashboard-preview.png` | README screenshot of the dashboard |
 | `product_brief_ga4_funnel.md` | AI product brief written by Section 10 of the notebook — generated locally, gitignored |
 | `requirements.txt` | Python dependencies |
 | `future_enhancements.md` | Roadmap of next steps, with effort estimates and what is deliberately out of scope |

@@ -18,7 +18,7 @@ e-commerce sample (Nov 2020 – Jan 2021).
 | E2 | Product category funnel breakdown ✅ done | 5–7 | High | Low | — |
 | E3 | Return-visitor vs new-visitor funnel | 4–5 | Medium | Low | — |
 | E4 | Parameterised date range and config | 2–3 | Medium | Low | — |
-| E5 | GitHub Pages live deployment | 2–3 | Medium | Low | — |
+| E5 | GitHub Pages live deployment ✅ done | 2–3 | Medium | Low | — |
 | E6 | Statistical significance on device split | 3–4 | Medium | Low | — |
 | E7 | Power BI dashboard build | 8–12 | Medium | High | E4 |
 | E8 | GitHub Actions CI pipeline | 4–6 | Low | High | E4, E5 |
@@ -201,36 +201,19 @@ any GA4 export — which is the core portfolio claim.
 
 ---
 
-### E5 · GitHub Pages live deployment
+### E5 · GitHub Pages live deployment ✅ done
 
-**Goal:** Host `dashboard.html` as a live URL via the `gh-pages` branch so the
-portfolio link opens in the browser directly rather than triggering a file
-download.
+**Goal:** Host `dashboard.html` as a live URL so the portfolio link opens in the
+browser directly rather than triggering a file download.
 
-**Why it matters:** Currently `dashboard.html` is committed to `main` but can only
-be viewed by downloading and opening it locally. A live URL on `github.io` is the
-difference between "here's a file you can open" and "here's a link" for anyone
-reviewing the project. The DASHBOARD_GUIDE.md section 5 already documents the
-manual steps — this enhancement automates them.
+**What was done:** GitHub Pages serves the `main` branch from the repo root —
+no `gh-pages` branch and no copied file, so the live site can never drift from
+the committed deliverable. An `index.html` redirect makes the short URL open the
+dashboard, and an empty `.nojekyll` skips the Jekyll build. The README links to
+the live page and shows a preview screenshot (`assets/dashboard-preview.png`).
+Update steps are in DASHBOARD_GUIDE.md section 5.
 
-**Subtasks:**
-
-| Step | What changes | Estimate |
-|---|---|---|
-| Create `gh-pages` branch containing only `dashboard.html` | `git checkout --orphan gh-pages`, remove all other files, commit | 0.5 h |
-| Enable GitHub Pages on the repo (Settings → Pages → Source: gh-pages / root) | GitHub UI change, no code | 0.25 h |
-| Add live URL to README | Update the README header to include `[![Dashboard](badge)](https://guiarpi.github.io/ga4-product-analytics/)` | 0.25 h |
-| Document the manual update process in DASHBOARD_GUIDE.md | When `dashboard.html` is regenerated, update the `gh-pages` branch; add steps to section 5 | 0.5 h |
-
-**Effort:** 2–3 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** None
-
-> Note: `dashboard.html` stays committed on `main` as the deliverable; the
-> `gh-pages` branch carries a copy. When the dashboard is regenerated, the
-> deployer checks out `gh-pages`, copies the new file, and pushes.
-
-**Expected outcome:** `https://guiarpi.github.io/ga4-product-analytics/` opens the
-interactive dashboard in any browser, with no download step. README badge links
-directly to it.
+**Live:** https://guiarpi.github.io/ga4-product-analytics/
 
 ---
 
@@ -312,7 +295,7 @@ applications.
 
 **Goal:** A GitHub Actions workflow that regenerates `dashboard.html` on a
 schedule (or on push to `main`) using BigQuery credentials stored as a GitHub
-secret, then deploys to the `gh-pages` branch.
+secret, then commits it to `main`, which GitHub Pages serves (E5).
 
 **Why it matters:** At the moment, `dashboard.html` goes stale as soon as the
 underlying dataset or queries change. An automated pipeline would keep the live
@@ -323,11 +306,11 @@ engineering practices (automation, secret management, idempotent pipelines).
 
 | Step | What changes | Estimate |
 |---|---|---|
-| Create `.github/workflows/regenerate_dashboard.yml` | New file: triggers on schedule + push; runs `pip install -r requirements.txt`, `python generate_dashboard.py`, commits `dashboard.html` to `gh-pages` | 1.5 h |
+| Create `.github/workflows/regenerate_dashboard.yml` | New file: triggers on schedule + push; runs `pip install -r requirements.txt`, `python generate_dashboard.py`, commits `dashboard.html` to `main` | 1.5 h |
 | Store GCP service account key as a GitHub Actions secret | `Settings → Secrets → GOOGLE_APPLICATION_CREDENTIALS_JSON`; configure workflow to write it to a temp file and set `GOOGLE_APPLICATION_CREDENTIALS` env var | 1 h |
 | Store `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` as a second secret | Allows the brief to regenerate in CI | 0.5 h |
 | Update `config.py` to read dates from environment variables | Enables the CI workflow to override dates if needed | 0.5 h |
-| Test the workflow on a branch before merging | Validate that the deploy step does not overwrite unrelated `gh-pages` content | 1 h |
+| Test the workflow on a branch before merging | Validate that the bot commit touches only `dashboard.html` | 1 h |
 
 **Effort:** 4–6 h | **Impact:** Low | **Risk:** High | **Prerequisite:** E4, E5
 
@@ -341,7 +324,7 @@ engineering practices (automation, secret management, idempotent pipelines).
 BigQuery costs. Limit the workflow trigger to `schedule` (weekly), not every push.
 
 **Expected outcome:** A GitHub Actions badge in the README showing the last
-successful pipeline run, and a `gh-pages` dashboard that updates weekly without
+successful pipeline run, and a live dashboard that updates weekly without
 any manual step.
 
 ---
