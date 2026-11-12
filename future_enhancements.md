@@ -251,14 +251,14 @@ closes the device question formally.
 
 ### E7 · Power BI dashboard build
 
-**Goal:** Implement the analysis as a Power BI report connected live to BigQuery,
+**Goal:** Implement the analysis as a Power BI report connected to BigQuery (Import mode),
 following the existing `POWERBI_GUIDE.md` step-by-step guide.
 
 **Why it matters:** `POWERBI_GUIDE.md` documents the full build — extraction SQL,
-data model, DAX measures for the funnel, and all four report pages — but the
+data model, DAX measures for the funnel, and all five report pages — but the
 `.pbix` file has not been built yet. Completing it demonstrates BI tool
 proficiency alongside the Python/SQL work, and it shows the
-same analysis in the tool their team actually uses.
+same analysis in a BI tool that many product and analytics teams use.
 
 **Subtasks:**
 
@@ -266,11 +266,12 @@ same analysis in the tool their team actually uses.
 |---|---|---|
 | Provision a Windows VM or Parallels environment | External to this repo — documented in POWERBI_GUIDE.md section 1 | 1 h |
 | Connect Power BI Desktop to BigQuery using the extraction SQL from the guide | POWERBI_GUIDE.md section 3; SQL adapts the existing `generate_dashboard.py` queries | 1.5 h |
-| Build the data model (4 tables: funnel, device, time-to-convert, cohort) | POWERBI_GUIDE.md section 4 | 1 h |
-| Write DAX measures (conversion rate, step drop, cumulative retention) | POWERBI_GUIDE.md section 5 | 2 h |
-| Build the 4 report pages | POWERBI_GUIDE.md sections 6–9 | 2.5 h |
-| Export as PDF and add screenshots to `_private/` | Not committed to the repo; shared as a portfolio PDF only | 1 h |
-| Update README to reference the Power BI guide | Add a note in the Tech stack section | 0.5 h |
+| Build the data model (session-grain fact, session × category fact, users, weekly activity, date and helper dimensions) | POWERBI_GUIDE.md section 4 | 1 h |
+| Write DAX measures (funnel rates, channel spread and verdict, category benchmark and carts at stake, censored retention) | POWERBI_GUIDE.md section 5 | 2 h |
+| Build the 5 report pages | POWERBI_GUIDE.md sections 6–10 | 3 h |
+| QA against the notebook and `dashboard.html` | POWERBI_GUIDE.md section 13 checklist | 0.5 h |
+| Commit `.pbix` and PDF export to `powerbi/`, page screenshots to `assets/` | POWERBI_GUIDE.md section 14 (public-sample data only) | 1 h |
+| Add the "Power BI version" section to the README | Template in POWERBI_GUIDE.md section 14 | 0.5 h |
 
 **Effort:** 8–12 h | **Impact:** Medium | **Risk:** High | **Prerequisite:** E4
 

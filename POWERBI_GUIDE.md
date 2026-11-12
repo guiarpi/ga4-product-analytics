@@ -1,7 +1,12 @@
 # Building the GA4 Funnel Dashboard in Power BI
 
 A step-by-step guide to rebuilding this analysis as a Power BI report, connected
-live to BigQuery, running on a Windows VM under VMware Fusion on macOS.
+to BigQuery (Import mode), running on a Windows VM under VMware Fusion on macOS.
+
+**Status:** planned, not yet built (roadmap E7). The SQL, measures and expected
+numbers below are kept in line with the notebook and `dashboard.html` as of the
+12 Nov 2026 run, including the acquisition-channel (E1) and product-category
+(E2) analyses.
 
 **What this build demonstrates:** that you can push heavy
 sequential logic down into warehouse SQL, model at the right grain, express
@@ -19,12 +24,13 @@ someone can actually interrogate — not just a set of static charts.
 5. [DAX measures](#5-dax-measures)
 6. [Page 1 — Executive overview](#6-page-1--executive-overview)
 7. [Page 2 — Funnel detail](#7-page-2--funnel-detail)
-8. [Page 3 — Cohort retention](#8-page-3--cohort-retention)
-9. [Page 4 — Opportunity sizing](#9-page-4--opportunity-sizing)
-10. [Drill-through and tooltips](#10-drill-through-and-tooltips)
-11. [Theme and formatting](#11-theme-and-formatting)
-12. [QA checklist](#12-qa-checklist)
-13. [Publishing and portfolio packaging](#13-publishing-and-portfolio-packaging)
+8. [Page 3 — Product categories](#8-page-3--product-categories)
+9. [Page 4 — Cohort retention](#9-page-4--cohort-retention)
+10. [Page 5 — Opportunity sizing](#10-page-5--opportunity-sizing)
+11. [Drill-through and tooltips](#11-drill-through-and-tooltips)
+12. [Theme and formatting](#12-theme-and-formatting)
+13. [QA checklist](#13-qa-checklist)
+14. [Publishing and portfolio packaging](#14-publishing-and-portfolio-packaging)
 
 ---
 
@@ -116,8 +122,9 @@ in
 
 ## 3 · The extraction SQL
 
-Three queries build the model. Each keeps the partition pruning
-(`_TABLE_SUFFIX BETWEEN`) that keeps the bill near zero.
+Five queries build the model. Each keeps the partition pruning
+(`_TABLE_SUFFIX BETWEEN`) that keeps the bill near zero. The funnel logic
+mirrors the notebook exactly (Sections 3–7), so the numbers reconcile.
 
 ### 3.1 · `fct_sessions` — one row per session
 
@@ -133,8 +140,7 @@ WITH base AS (
     (SELECT ep.value.int_value FROM UNNEST(event_params) ep
      WHERE ep.key = 'ga_session_id' LIMIT 1)          AS session_id,
     device.category                                    AS device_category,
-    traffic_source.medium                              AS traffic_medium,
-    traffic_source.source                              AS traffic_source_name,
+    traffic_source.medium                              AS first_touch_medium,
     event_name,
     event_timestamp,
     event_date,
@@ -144,12 +150,30 @@ WITH base AS (
     AND event_name IN ('session_start','view_item','add_to_cart',
                        'begin_checkout','purchase')
 ),
+-- The session's own medium: taken from the earliest event in the session that
+-- carries one. Scans every event type — medium is not guaranteed on funnel events.
+session_medium AS (
+  SELECT
+    user_pseudo_id, session_id,
+    ARRAY_AGG(medium ORDER BY event_timestamp LIMIT 1)[OFFSET(0)] AS session_medium
+  FROM (
+    SELECT
+      user_pseudo_id, event_timestamp,
+      (SELECT ep.value.int_value    FROM UNNEST(event_params) ep
+       WHERE ep.key = 'ga_session_id' LIMIT 1)        AS session_id,
+      (SELECT ep.value.string_value FROM UNNEST(event_params) ep
+       WHERE ep.key = 'medium' LIMIT 1)               AS medium
+    FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
+    WHERE _TABLE_SUFFIX BETWEEN '20201101' AND '20210131'
+  )
+  WHERE session_id IS NOT NULL AND medium IS NOT NULL
+  GROUP BY user_pseudo_id, session_id
+),
 se AS (
   SELECT
     user_pseudo_id, session_id, event_name,
     ANY_VALUE(device_category)     AS device_category,
-    ANY_VALUE(traffic_medium)      AS traffic_medium,
-    ANY_VALUE(traffic_source_name) AS traffic_source_name,
+    ANY_VALUE(first_touch_medium)  AS first_touch_medium,
     MIN(event_timestamp)           AS first_ts,
     MIN(event_date)                AS first_date,
     SUM(purchase_revenue)          AS rev
@@ -161,8 +185,7 @@ pv AS (
   SELECT
     user_pseudo_id, session_id,
     ANY_VALUE(device_category)     AS device_category,
-    ANY_VALUE(traffic_medium)      AS traffic_medium,
-    ANY_VALUE(traffic_source_name) AS traffic_source_name,
+    ANY_VALUE(first_touch_medium)  AS first_touch_medium,
     MIN(first_date)                AS session_date_raw,
     MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
     MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
@@ -172,25 +195,46 @@ pv AS (
     MAX(CASE WHEN event_name='purchase'       THEN rev     END) AS revenue
   FROM se
   GROUP BY user_pseudo_id, session_id
+),
+flagged AS (
+  SELECT
+    pv.*,
+    COALESCE(sm.session_medium, '(not set)')                  AS channel,
+    ts_p IS NOT NULL AND ts_p >= ts_k AND ts_k >= ts_c
+                     AND ts_c >= ts_v AND ts_v >= ts_s        AS purchased
+  FROM pv
+  LEFT JOIN session_medium sm USING (user_pseudo_id, session_id)
+  WHERE ts_s IS NOT NULL
 )
 SELECT
   CONCAT(user_pseudo_id, '-', CAST(session_id AS STRING))   AS session_key,
   user_pseudo_id,
   PARSE_DATE('%Y%m%d', session_date_raw)                    AS session_date,
   device_category,
-  IFNULL(traffic_medium, '(none)')                          AS traffic_medium,
-  IFNULL(traffic_source_name, '(direct)')                   AS traffic_source,
+  channel,
+  -- Channels under 1% of sessions are pooled: tiny denominators give noisy rates.
+  IF(COUNT(*) OVER (PARTITION BY channel) / COUNT(*) OVER () < 0.01,
+     'other (small channels)', channel)                     AS channel_group,
+  COALESCE(first_touch_medium, '(not set)')                 AS first_touch_medium,
   ts_v IS NOT NULL AND ts_v >= ts_s                         AS viewed_item,
   ts_c IS NOT NULL AND ts_c >= ts_v AND ts_v >= ts_s        AS added_to_cart,
   ts_k IS NOT NULL AND ts_k >= ts_c AND ts_c >= ts_v
                    AND ts_v >= ts_s                         AS began_checkout,
-  ts_p IS NOT NULL AND ts_p >= ts_k AND ts_k >= ts_c
-                   AND ts_c >= ts_v AND ts_v >= ts_s        AS purchased,
-  IFNULL(revenue, 0)                                        AS revenue,
-  SAFE_DIVIDE(ts_p - ts_s, 3600000000.0)                    AS hours_to_purchase
-FROM pv
-WHERE ts_s IS NOT NULL
+  purchased,
+  -- Revenue counts only on sessions that completed the sequential funnel (notebook §4).
+  IF(purchased, IFNULL(revenue, 0), 0)                      AS revenue,
+  IF(purchased, SAFE_DIVIDE(ts_p - ts_s, 60000000.0), NULL) AS minutes_to_purchase
+FROM flagged
 ```
+
+> **Channel = the session's own medium, not `traffic_source.medium`.** In the
+> GA4 export `traffic_source.medium` is the *user's* first-touch medium,
+> repeated on every session that user ever has. Group a session funnel by it and
+> a returning direct visit is credited to the campaign that first acquired the
+> user. The two definitions agree on only **52.9%** of sessions here. Keep
+> `first_touch_medium` in the table purely for that agreement check — never as a
+> slicer. Sessions with no session-level medium are labelled `(not set)` (26.2%
+> of sessions) and are shown separately, not dropped.
 
 > **The sequence logic stays in SQL deliberately.** Comparing five timestamps per
 > session is exactly what a columnar warehouse is good at and exactly what DAX is
@@ -220,6 +264,75 @@ FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`
 WHERE _TABLE_SUFFIX BETWEEN '20201101' AND '20210131'
   AND event_name = 'session_start'
 ```
+
+### 3.4 · `fct_session_category` — one row per (session, product category)
+
+Category conversion needs its own grain: one session can view several
+categories, so it cannot live on `fct_sessions`.
+
+```sql
+-- One row per item on each view_item / add_to_cart event.
+WITH item_events AS (
+  SELECT
+    user_pseudo_id,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) ep
+     WHERE ep.key = 'ga_session_id' LIMIT 1)                     AS session_id,
+    event_name,
+    event_timestamp,
+    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)')    AS raw_category
+  FROM `bigquery-public-data.ga4_obfuscated_sample_ecommerce.events_*`,
+       UNNEST(items) AS it
+  WHERE _TABLE_SUFFIX BETWEEN '20201101' AND '20210131'
+    AND event_name IN ('view_item', 'add_to_cart')
+),
+-- item_category mixes flat labels ("Bags") with paths ("Lifestyle/Bags/").
+-- Keep the last path segment, BEFORE grouping by session, so a session that
+-- viewed both counts once. ' / ' (spaced) is part of a name, e.g. "Men's / Unisex".
+normalised AS (
+  SELECT
+    *,
+    IF(raw_category = '(not set)', raw_category,
+       COALESCE(NULLIF(TRIM(REPLACE(ARRAY_REVERSE(SPLIT(TRIM(REPLACE(
+         raw_category, ' / ', ' | '), '/'), '/'))[SAFE_OFFSET(0)], ' | ', ' / ')), ''),
+                '(not set)'))                                     AS item_category
+  FROM item_events
+)
+SELECT
+  CONCAT(user_pseudo_id, '-', CAST(session_id AS STRING))         AS session_key,
+  item_category,
+  MIN(IF(event_name = 'view_item', event_timestamp, NULL)) IS NOT NULL
+                                                                  AS viewed_category,
+  -- Carted at or after the first view of this category in the session.
+  IFNULL(MAX(IF(event_name = 'add_to_cart', event_timestamp, NULL))
+         >= MIN(IF(event_name = 'view_item', event_timestamp, NULL)), FALSE)
+                                                                  AS carted_after_view
+FROM normalised
+WHERE session_id IS NOT NULL
+GROUP BY session_key, item_category
+```
+
+> **What this metric measures.** Category view → cart starts *after* a product
+> page has been reached. It is evidence about product pages in that category
+> (price, imagery, sizing, stock) — it says nothing about category or listing
+> pages, or clicks from them. Label the page accordingly.
+
+### 3.5 · `dim_category` — label audit
+
+Every normalisation rule needs its output read, not just its row count
+checked — this is how the "Men's / Unisex" → "Unisex" bug was caught.
+
+```sql
+-- Reuse the item_events and normalised CTEs from 3.4, then:
+SELECT
+  item_category,
+  COUNT(DISTINCT raw_category)                                    AS n_source_labels,
+  STRING_AGG(DISTINCT raw_category, ' · ' ORDER BY raw_category)  AS source_labels
+FROM normalised
+GROUP BY item_category
+```
+
+Put it in a small table on the category page (filter `n_source_labels > 1`) so
+every merge is visible to the reader.
 
 ---
 
@@ -271,8 +384,16 @@ columns a home, and the retention measure reads it with `SELECTEDVALUE`.
 | `fct_sessions[session_date]` | `dim_date[Date]` | Many-to-one | Single |
 | `fct_sessions[user_pseudo_id]` | `dim_users[user_pseudo_id]` | Many-to-one | Single |
 | `fct_user_activity[user_pseudo_id]` | `dim_users[user_pseudo_id]` | Many-to-one | Single |
+| `fct_session_category[session_key]` | `fct_sessions[session_key]` | Many-to-one | Single |
+| `fct_session_category[item_category]` | `dim_category[item_category]` | Many-to-one | Single |
 
 `dim_weeks_since` stays disconnected.
+
+The session-to-category relationship lets the device, channel and date slicers
+filter the category page. A few category rows come from sessions with no
+`session_start` event; they have no match in `fct_sessions`, sit under a blank
+member when sliced, and are still counted in the unfiltered totals — exactly as
+in the notebook.
 
 ### Model hygiene
 
@@ -280,7 +401,8 @@ columns a home, and the retention measure reads it with `SELECTEDVALUE`.
 - Hide the `MonthSort` and `DayOfWeekNo` helper columns
 - Put all measures in a dedicated `_Measures` table
   (**Home → Enter Data**, name it `_Measures`, delete the placeholder column)
-- Set `revenue` to Currency, `hours_to_purchase` to Decimal
+- Hide `first_touch_medium` and `channel` (slice by `channel_group`)
+- Set `revenue` to Currency, `minutes_to_purchase` to Decimal
 
 The measures table with a leading underscore sorts to the top of the field list.
 Small thing; reviewers who use Power BI daily notice it.
@@ -325,13 +447,101 @@ Cart Rate of All % = DIVIDE( [Sessions Added to Cart], [Sessions] )
 
 ```dax
 Total Revenue = SUM( fct_sessions[revenue] )
-AOV           = DIVIDE( [Total Revenue], [Sessions Purchased] )
-Median Order  = MEDIANX( FILTER( fct_sessions, fct_sessions[purchased] = TRUE() ),
+-- Averages only purchasing sessions that recorded revenue, as the notebook does.
+-- Some sequential purchases carry no purchase_revenue; dividing by all
+-- [Sessions Purchased] would understate AOV (~$71 instead of $79).
+Orders with Revenue = CALCULATE( [Sessions], fct_sessions[purchased] = TRUE(),
+                                 fct_sessions[revenue] > 0 )
+AOV           = DIVIDE( [Total Revenue], [Orders with Revenue] )
+Median Order  = MEDIANX( FILTER( fct_sessions, fct_sessions[purchased] = TRUE()
+                                  && fct_sessions[revenue] > 0 ),
                          fct_sessions[revenue] )
-Median Hours to Purchase =
+Median Minutes to Purchase =
     MEDIANX( FILTER( fct_sessions, fct_sessions[purchased] = TRUE() ),
-             fct_sessions[hours_to_purchase] )
+             fct_sessions[minutes_to_purchase] )
 ```
+
+Show time to purchase in minutes (~16), not hours (0.26) — nobody reads
+"0.26 hours" correctly at a glance. The notebook uses `APPROX_QUANTILES`, so
+expect the exact DAX median to differ by a few seconds.
+
+### Acquisition channel
+
+```dax
+-- Purchase rate and revenue per session are only trustworthy with 30+ purchases.
+Low Purchase Volume = IF( [Sessions Purchased] < 30, 1, 0 )
+
+Revenue per Session = DIVIDE( [Total Revenue], [Sessions] )
+
+-- Spread of product-page reach across actionable channels:
+-- excludes '(not set)' and the pooled small channels, as in the notebook.
+Channel View Spread pp =
+VAR T =
+    FILTER(
+        ADDCOLUMNS( ALLSELECTED( fct_sessions[channel_group] ),
+                    "@rate", [View Item Rate %] ),
+        NOT fct_sessions[channel_group] IN { "(not set)", "other (small channels)" }
+    )
+RETURN ( MAXX( T, [@rate] ) - MINX( T, [@rate] ) ) * 100
+
+Channel Verdict =
+VAR S = [Channel View Spread pp]
+RETURN SWITCH( TRUE(),
+    S >= 10, "Traffic mix is a driver — check the weakest channel's landing pages",
+    S >= 7,  "Borderline — leaning site problem; review the weakest channel first",
+             "Uniform across channels — the leak is on the site" )
+
+-- How often the session medium matches the user's first-touch medium.
+Medium Agreement % =
+DIVIDE(
+    COUNTROWS( FILTER( fct_sessions,
+        fct_sessions[channel] = fct_sessions[first_touch_medium] ) ),
+    [Sessions] )
+```
+
+The decision rule was set before looking at the data: a spread of 10pp or more
+means traffic quality drives the top-of-funnel loss; 7–10pp is reported as
+**borderline**, not rounded into a story either way.
+
+### Product category
+
+```dax
+Category Viewing Sessions =
+    CALCULATE( COUNTROWS( fct_session_category ),
+               fct_session_category[viewed_category] = TRUE() )
+
+Category Carting Sessions =
+    CALCULATE( COUNTROWS( fct_session_category ),
+               fct_session_category[carted_after_view] = TRUE() )
+
+Category View to Cart % = DIVIDE( [Category Carting Sessions], [Category Viewing Sessions] )
+
+-- Volume-weighted benchmark over ranked categories (500+ viewing sessions,
+-- '(not set)' excluded). ALL on the category column so each row compares
+-- against the same pooled rate.
+Category Benchmark % =
+VAR Ranked =
+    FILTER(
+        ADDCOLUMNS( ALL( fct_session_category[item_category] ),
+                    "@views", [Category Viewing Sessions],
+                    "@carts", [Category Carting Sessions] ),
+        fct_session_category[item_category] <> "(not set)" && [@views] >= 500 )
+RETURN DIVIDE( SUMX( Ranked, [@carts] ), SUMX( Ranked, [@views] ) )
+
+-- Extra carting sessions if a below-benchmark category converted at the benchmark.
+Carts at Stake =
+VAR Bench = [Category Benchmark %]
+RETURN
+SUMX(
+    FILTER( VALUES( fct_session_category[item_category] ),
+            fct_session_category[item_category] <> "(not set)"
+            && [Category Viewing Sessions] >= 500 ),
+    MAX( 0, ROUND( ( Bench - [Category View to Cart %] ) * [Category Viewing Sessions], 0 ) )
+)
+```
+
+Rank by **carts at stake**, not by the rate: a high-traffic category with a
+moderate gap outranks a niche one with a dramatic rate.
 
 ### Funnel as a measure-driven visual
 
@@ -463,11 +673,14 @@ Make the warning automatic rather than typed:
 
 ```dax
 Retention Status Colour =
-IF( [Avg Week 1 Retention] < 0.20, "#DC2626", "#059669" )
+IF( [Avg Week 1 Retention] < 0.10, "#DC2626", "#059669" )
 ```
 
 Card → Format → Callout value → Colour → **fx** → Field value →
 `Retention Status Colour`.
+
+The 10% line matches the HTML dashboard's warning. It is a rule-of-thumb flag,
+not a sourced industry benchmark — say so if asked.
 
 ---
 
@@ -480,12 +693,14 @@ This page is where slicers earn their place.
 - Funnel bar chart (as page 1, larger)
 - **Matrix**: rows `device_category`, values `[Sessions]`,
   `[View Item Rate %]`, `[Cart Rate of All %]`, `[Session to Purchase %]`
-- **Matrix**: rows `traffic_medium`, same measures
-- Slicers: `device_category`, `traffic_medium`, `dim_date[Date]`
+- **Matrix**: rows `channel_group`, values `[Sessions]`, `[View Item Rate %]`,
+  `[Session to Purchase %]`, `[Revenue per Session]`
+- Card: `[Channel View Spread pp]` with `[Channel Verdict]` beneath it
+- Slicers: `device_category`, `channel_group`, `dim_date[Date]`
 
 ### The device result — present it as a table
 
-Purchase rates differ by roughly **0.08 percentage points** across desktop,
+Purchase rates differ by roughly **0.05 percentage points** across desktop,
 mobile and tablet. Three near-identical bars in a chart invite the reader to hunt
 for a difference that isn't there; a matrix states it plainly.
 
@@ -497,20 +712,53 @@ Add a text box beside it:
 
 Reporting a null result clearly is a signal of analytical maturity. Don't bury it.
 
-### Traffic source — the genuinely new analysis
+### Acquisition channel — mirror the notebook, don't reinvent it
 
-This is what Power BI adds that the static HTML dashboard never did. Slice the
-funnel by `traffic_medium` and the top-of-funnel drop stops being one number and
-becomes a distribution.
+Slice the funnel by `channel_group` (the session's own medium, see 3.1) and the
+top-of-funnel drop stops being one number and becomes a distribution. If the
+79% loss were concentrated in one or two paid mediums, it would be a targeting
+and landing-page problem owned by acquisition; if it is flat, it is site
+navigation owned by product.
 
-Sort the matrix by `[View Item Rate %]` ascending. If the 79% top-of-funnel loss
-is concentrated in two or three paid mediums, it's a targeting and landing-page
-problem owned by acquisition. If it's flat across all mediums, it's site
-navigation owned by product. Those are different teams and different budgets.
+Expected result: product-page reach spreads **8.7pp**, from cpc 21.6% to
+referral 30.3% — **borderline** under the 10pp rule, leaning towards a site
+problem. Present it that way.
+
+Formatting rules for the channel matrix:
+
+- **Grey out** `[Session to Purchase %]` and `[Revenue per Session]` where
+  `[Low Purchase Volume] = 1` (conditional formatting → font colour → rules).
+  cpc has about 28 purchases: its purchase rate must not be ranked or acted on.
+  `[View Item Rate %]` rests on session counts and stays reliable.
+- Keep `(not set)` as its own row with a note: 26.2% of sessions, 6.7% reach a
+  product page. It is excluded from the spread, not hidden.
+- Optional card: `[Medium Agreement %]` (52.9%) beside a one-line note on why
+  first-touch medium is the wrong field for a session funnel.
 
 ---
 
-## 8 · Page 3 — Cohort retention
+## 8 · Page 3 — Product categories
+
+**Visuals:**
+
+- **Bar chart**: axis `item_category`, value `[Category View to Cart %]`,
+  sorted ascending; add a constant line at `[Category Benchmark %]` (Analytics
+  pane → Constant line → fx). Conditional colour: below benchmark = orange.
+- **Table**: `item_category`, `[Category Viewing Sessions]`,
+  `[Category View to Cart %]`, `[Carts at Stake]`, sorted by carts at stake.
+- **Visual filter** on both: `item_category` is not `(not set)` and
+  `[Category Viewing Sessions]` ≥ 500 (23 categories in this run).
+- **Small table** from `dim_category`, filtered to `n_source_labels > 1` —
+  the merge audit.
+- Title the page "Product page → cart by category", not "Category pages".
+
+Expected result: benchmark **25.0%**; YouTube (15.6%), Apparel (19.1%) and
+Bags (17.6%) hold **1,185 of the 2,157** carts at stake — the starting list for
+a product-page audit.
+
+---
+
+## 9 · Page 4 — Cohort retention
 
 **The visual is a Matrix**, formatted as a heatmap:
 
@@ -547,7 +795,7 @@ Add a text box documenting both boundary effects:
 
 ---
 
-## 9 · Page 4 — Opportunity sizing
+## 10 · Page 5 — Opportunity sizing
 
 Power BI's what-if parameter turns a static claim into something a stakeholder
 can interrogate. This is the page that makes the report feel like a tool.
@@ -595,7 +843,7 @@ Put a text box under the slicers:
 
 ---
 
-## 10 · Drill-through and tooltips
+## 11 · Drill-through and tooltips
 
 ### Drill-through page
 
@@ -620,7 +868,7 @@ and it reads as a level above default tooltips.
 
 ---
 
-## 11 · Theme and formatting
+## 12 · Theme and formatting
 
 Save as `ga4-theme.json` and load via **View → Themes → Browse for themes**:
 
@@ -660,7 +908,7 @@ Save as `ga4-theme.json` and load via **View → Themes → Browse for themes**:
 
 ---
 
-## 12 · QA checklist
+## 13 · QA checklist
 
 Before exporting or publishing:
 
@@ -670,7 +918,18 @@ Before exporting or publishing:
 - [ ] Session-to-purchase matches (**0.80%**)
 - [ ] AOV matches (**$79**, median $55)
 - [ ] Avg Week-1 retention matches (**4.2%**, full cohorts only)
-- [ ] Device purchase-rate spread matches (**~0.08pp**)
+- [ ] Censored cells: **91 of 196** matrix cells blank
+- [ ] Device purchase-rate spread matches (**~0.05pp**)
+- [ ] Median time to purchase matches (**~15.6 min**)
+- [ ] Channel: `(not set)` is **26.2%** of sessions; medium agreement **52.9%**;
+      view-item spread **8.7pp** (cpc 21.6% → referral 30.3%)
+- [ ] Category: **23** ranked categories, benchmark **25.0%**, carts at stake
+      **2,157** in total, **1,185** in the top three
+- [ ] Revenue total and AOV include converting sessions only; AOV divides by
+      `[Orders with Revenue]`, not `[Sessions Purchased]`
+
+Figures are from the 12 Nov 2026 run. If the notebook is re-run, take the
+expected values from the fresh `dashboard.html`, not from this list.
 
 > Cross-checking Power BI against the Python pipeline is the single most valuable
 > QA step available to you. Two independent implementations agreeing is real
@@ -694,6 +953,8 @@ Before exporting or publishing:
 **Interaction**
 
 - [ ] Every slicer affects the visuals it should — and only those
+- [ ] No slicer or axis uses `first_touch_medium`
+- [ ] Low-volume channel rates are greyed out
 - [ ] Drill-through works from cohort rows and returns cleanly
 - [ ] What-if sliders update all downstream cards
 - [ ] Nothing shows `(Blank)` where a zero is meant
@@ -707,7 +968,7 @@ Before exporting or publishing:
 
 ---
 
-## 13 · Publishing and portfolio packaging
+## 14 · Publishing and portfolio packaging
 
 ### The problem
 
@@ -730,8 +991,13 @@ Tools is installed.
 **2 · Export a PDF** — **File → Export → Export to PDF**. This is the reliable
 universal artefact. Commit it as `powerbi/GA4_Funnel_Analysis.pdf`.
 
-**3 · Screenshot each page** to `assets/` and embed in the README. Same argument
-as before: reviewers look at images, they don't open files.
+**3 · Screenshot each page** to `assets/` (it already holds
+`dashboard-preview.png` for the HTML dashboard) and embed them in the README.
+Reviewers look at images; they don't open files.
+
+> GitHub Pages serves `main` from the repo root, so anything committed under
+> `powerbi/` is also downloadable from `https://guiarpi.github.io/ga4-product-analytics/powerbi/…`.
+> Commit only the public-sample report — nothing else belongs there.
 
 **4 · Publish to the Power BI Service** if you have a work or school account:
 **Home → Publish → My workspace.**
@@ -748,8 +1014,10 @@ as before: reviewers look at images, they don't open files.
 ## Power BI version
 
 The same analysis rebuilt as an interactive Power BI report — DAX measures,
-cross-filtering slicers, drill-through cohort detail, and a what-if parameter
-for opportunity sizing.
+cross-filtering slicers across device and acquisition channel, a product-category
+page, drill-through cohort detail, and a what-if parameter for opportunity sizing.
+Its numbers reconcile with the notebook and the
+[live HTML dashboard](https://guiarpi.github.io/ga4-product-analytics/dashboard.html).
 
 ![Power BI overview](assets/powerbi-overview.png)
 
@@ -758,7 +1026,7 @@ for opportunity sizing.
 
 Connected directly to BigQuery via the native connector in Import mode, with the
 sequential funnel logic pushed down into SQL and all rates expressed as DAX
-measures over a session-grain fact table.
+measures over a session-grain fact table and a (session, category) fact table.
 ```
 
 ---
