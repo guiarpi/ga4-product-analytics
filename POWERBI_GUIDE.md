@@ -3,7 +3,7 @@
 A step-by-step guide to rebuilding this analysis as a Power BI report, connected
 live to BigQuery, running on a Windows VM under VMware Fusion on macOS.
 
-**What this demonstrates to a hiring manager:** that you can push heavy
+**What this build demonstrates:** that you can push heavy
 sequential logic down into warehouse SQL, model at the right grain, express
 business logic as DAX measures rather than pre-baked columns, and design a report
 someone can actually interrogate — not just a set of static charts.
@@ -25,7 +25,6 @@ someone can actually interrogate — not just a set of static charts.
 11. [Theme and formatting](#11-theme-and-formatting)
 12. [QA checklist](#12-qa-checklist)
 13. [Publishing and portfolio packaging](#13-publishing-and-portfolio-packaging)
-14. [Power BI interview talking points](#14-power-bi-interview-talking-points)
 
 ---
 
@@ -90,10 +89,6 @@ can build the entire report locally and export to PDF without ever signing in.
 DirectQuery against `events_*` wildcard tables re-scans partitions on every
 visual interaction — slow and expensive. Import runs the SQL once, compresses the
 result into the VertiPaq engine, and every subsequent interaction is in-memory.
-
-Say this out loud in an interview if Power BI comes up. It's a cost-and-
-architecture judgment, and knowing *when* DirectQuery is wrong signals more than
-knowing it exists.
 
 ### Feeding it custom SQL
 
@@ -513,8 +508,6 @@ is concentrated in two or three paid mediums, it's a targeting and landing-page
 problem owned by acquisition. If it's flat across all mediums, it's site
 navigation owned by product. Those are different teams and different budgets.
 
-Have that sentence ready — it's the natural answer to "what would you do next?"
-
 ---
 
 ## 8 · Page 3 — Cohort retention
@@ -599,10 +592,6 @@ Put a text box under the slicers:
 
 > At 100% the model assumes incremental traffic converts like existing traffic —
 > an upper bound. Planning range: 50–75%.
-
-If an interviewer asks one question about this report, it will probably be about
-this assumption. Having modelled it explicitly is a much stronger position than
-defending a single number.
 
 ---
 
@@ -774,53 +763,6 @@ measures over a session-grain fact table.
 
 ---
 
-## 14 · Power BI interview talking points
-
-**"Why did you model at session grain instead of importing the aggregates?"**
-> Because aggregates freeze the questions you're allowed to ask. At session grain
-> with boolean step flags, every rate is a DAX measure, so a slicer on traffic
-> medium or device recomputes the entire funnel for free. It's 355,000 rows —
-> nothing for VertiPaq. If it were 500 million I'd aggregate in BigQuery and
-> accept the loss of flexibility, but not at this size.
-
-**"Why Import rather than DirectQuery?"**
-> DirectQuery would re-scan wildcard partitions on every visual interaction —
-> slow for the user and billable every time. The data is a fixed historical
-> window, so there's nothing to gain from live queries. DirectQuery earns its
-> place when data freshness matters more than interaction speed; here it's the
-> opposite.
-
-**"Why is the sequence logic in SQL rather than DAX?"**
-> Comparing five timestamps per session across 355,000 sessions is exactly what a
-> columnar warehouse is built for and exactly what DAX handles badly. Doing it in
-> SQL also means the flags arrive in the model already trustworthy — the semantic
-> layer never re-derives event ordering, so there's one definition of "reached
-> checkout" rather than two that can drift apart.
-
-**"What's the hardest thing in this report?"**
-> The retention measure. Naively it's returned users over cohort size, but a
-> cohort from the final week hasn't *had* the chance to return — so a zero there
-> is fabricated. In this dataset that's 46% of the matrix cells. The measure
-> checks whether each cohort-week actually fits inside the observation window and
-> returns `BLANK()` when it doesn't. Same reasoning excludes the first cohort,
-> which is one day of users because the window opens mid-week.
-
-**"How do you know the numbers are right?"**
-> I built the same analysis twice — once as a Python and BigQuery pipeline
-> producing a static HTML dashboard, once in Power BI — and reconciled them.
-> Sessions, conversion rate, AOV and retention agree across both. Two independent
-> implementations landing on the same number is meaningful evidence; one
-> implementation agreeing with itself isn't.
-
-**"What would you add next?"**
-> Row-level security if this were multi-tenant, incremental refresh so it doesn't
-> re-import the full window nightly, and a proper date-comparison layer —
-> period-over-period measures so the report shows movement rather than a
-> snapshot. Right now it answers "what is the funnel"; it should answer "what
-> changed and why".
-
----
-
 ## Appendix — VM-specific troubleshooting
 
 | Symptom | Cause | Fix |
@@ -836,4 +778,4 @@ measures over a session-grain fact table.
 
 *Companion documents: `DASHBOARD_GUIDE.md` for the Python and HTML pipeline,
 `README.md` for project overview.*
-*Last updated: 25 August 2026*
+*Last updated: 12 November 2026*
