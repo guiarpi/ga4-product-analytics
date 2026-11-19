@@ -12,16 +12,16 @@ e-commerce sample (Nov 2020 – Jan 2021).
 
 ## Priority overview
 
-| # | Enhancement | Effort (hrs) | Impact | Risk | Prerequisite |
-|---|---|---|---|---|---|
-| E1 | Traffic source × funnel cross-tab ✅ done | 4–6 | High | Low | — |
-| E2 | Product category funnel breakdown ✅ done | 5–7 | High | Low | — |
-| E3 | Return-visitor vs new-visitor funnel | 4–5 | Medium | Low | — |
-| E4 | Parameterised date range and config | 2–3 | Medium | Low | — |
-| E5 | GitHub Pages live deployment ✅ done | 2–3 | Medium | Low | — |
-| E6 | Statistical significance on device split | 3–4 | Medium | Low | — |
-| E7 | Power BI dashboard build | 8–12 | Medium | High | E4 |
-| E8 | GitHub Actions CI pipeline | 4–6 | Low | High | E4, E5 |
+| # | Enhancement | Status | Effort (hrs) | Impact | Risk | Prerequisite |
+|---|---|---|---|---|---|---|
+| E1 | Traffic source × funnel cross-tab | ✅ done | 4–6 | High | Low | — |
+| E2 | Product category funnel breakdown | ✅ done | 5–7 | High | Low | — |
+| E3 | Return-visitor vs new-visitor funnel | | 4–5 | Medium | Low | — |
+| E4 | Parameterised date range and config | | 2–3 | Medium | Low | — |
+| E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
+| E6 | Statistical significance on device split | | 3–4 | Medium | Low | — |
+| E7 | Power BI dashboard build | | 8–12 | Medium | High | E4 |
+| E8 | GitHub Actions CI pipeline | | 4–6 | Low | High | E4, E5 |
 
 ---
 
