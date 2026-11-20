@@ -63,6 +63,10 @@ if not re.fullmatch(r"[a-z0-9][a-z0-9.:-]*[a-z0-9]\.[A-Za-z0-9_]+", DATASET):
     raise ValueError(f"GA4_DATASET must look like 'project.dataset', got {DATASET!r}")
 
 def _parse(name: str, value: str) -> _dt.date:
+    # strptime alone is lenient: "%Y%m%d" accepts "2021013" as 3 Jan 2021, so a
+    # typo would silently run the wrong window. Require exactly eight digits.
+    if not re.fullmatch(r"\d{8}", value):
+        raise ValueError(f"{name} must be a YYYYMMDD date, got {value!r}")
     try:
         return _dt.datetime.strptime(value, "%Y%m%d").date()
     except ValueError:
