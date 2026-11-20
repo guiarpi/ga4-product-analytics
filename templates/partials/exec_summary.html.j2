@@ -1,7 +1,7 @@
 {#- One story, stated with numbers: the largest absolute loss is discovery; after
-    that, products convert to carts at a category-dependent rate, and most carts
+    that, products convert to carts at a rate that depends on the listing, and most carts
     never reach checkout. Every clause is computed, so it stays true on new data. -#}
 Of {{ total_sessions|fmt(',') }} sessions in {{ date_label }}, <strong>{{ overall_cvr|fmt('.2f') }}%</strong> ended in a purchase.
 {%- if disc_is_biggest %} The largest loss is <strong>discovery</strong>: only <strong>{{ view_rate|fmt('.1f') }}%</strong> of sessions saw any product, so {{ total_lost_discovery|fmt(',') }} sessions ({{ (100 - view_rate)|fmt('.1f') }}%) left without seeing one.
 {%- else %} The largest absolute loss is between <strong>{{ biggest_drop_step }}</strong> and the next step ({{ biggest_drop_n|fmt(',') }} sessions).
-{%- endif %} Of sessions that did see products, <strong>{{ atc_from_view|fmt('.1f') }}%</strong> added one to cart — a rate that varies by category, a separate merchandising problem. Once a cart exists, <strong>{{ cart_abandon_pct|fmt('.0f') }}%</strong> of carting sessions ({{ (carted_n - checkout_n)|fmt(',') }} of {{ carted_n|fmt(',') }}) never begin checkout.
+{%- endif %} Of sessions that did see products, <strong>{{ atc_from_view|fmt('.1f') }}%</strong> added one to cart — a rate that varies by listing page, a separate merchandising problem. Once a cart exists, <strong>{{ cart_abandon_pct|fmt('.0f') }}%</strong> of carting sessions ({{ (carted_n - checkout_n)|fmt(',') }} of {{ carted_n|fmt(',') }}) never begin checkout.

@@ -43,7 +43,8 @@ from plotly.offline import get_plotlyjs
 from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE, MAX_BYTES_BILLED,
                     make_client, describe, run_query, estimate_bytes, format_bytes)
 from stats_utils import wilson_ci, chi_square, format_p
-from metrics import site_average, flag_categories
+from metrics import (site_average, flag_categories, listing_levels,
+                     weak_landing_pages, mix_decomposition)
 from md_render import md_to_html
 import charts
 import queries
@@ -59,7 +60,8 @@ DASHBOARD_QUERIES = (
     queries.session_funnel_sql, queries.unique_users_sql, queries.revenue_sql,
     queries.session_quality_sql, queries.event_quality_sql, queries.device_funnel_sql,
     queries.channel_funnel_sql, queries.shoppers_funnel_sql, queries.category_sql,
-    queries.time_to_convert_sql, queries.cohort_sql,
+    queries.category_overlap_sql, queries.price_band_sql, queries.landing_pages_sql,
+    queries.time_to_convert_sql, queries.cohort_sql, queries.cohort_channel_sql,
 )
 
 args = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip(),
@@ -272,10 +274,16 @@ channel_rows = [dict(r, cart_from_view=None if pd.isna(r["cart_from_view"]) else
 print("Querying shoppers funnel...")
 shoppers_raw = q(queries.shoppers_funnel_sql)
 
-# ── 4b. Product category view → cart (E2) ─────────────────────────────────────
-# Question: the second-largest leak is view_item → add_to_cart. Which product
-# categories is it concentrated in? This turns "audit the product pages" into a
+# ── 4b. Listing pages: seen → carted (E2) ────────────────────────────────────
+# Question: the second-largest leak is view_item → add_to_cart. Where in the
+# catalogue is it concentrated? This turns "audit the product pages" into a
 # ranked list of where to start.
+#
+# item_category is the LISTING a product was shown in, not a product attribute:
+# almost every product appears under several (a tee under Apparel, Google, Sale).
+# Rows are therefore listing pages, split by level from their raw paths. Only
+# product-type pages are ranked against each other; brand, collection and parent
+# pages are shown separately, because they mix product types.
 #
 # Grain: one row per (session, item_category). A session counts as "carting" a
 # category only if it added an item OF THAT CATEGORY at or after first viewing
@@ -297,16 +305,27 @@ category_notset_share = (
     category_raw.loc[category_raw["item_category"] == "(not set)", "viewing_sessions"].sum()
     / _cat_all_views * 100 if _cat_all_views else 0.0
 )
-category_tbl = category_raw[
+category_raw["level"] = listing_levels(category_raw["item_category"], category_raw["parent_node"])
+_listed = category_raw[
     (category_raw["item_category"] != "(not set)")
     & (category_raw["viewing_sessions"] >= MIN_CATEGORY_VIEWS)
 ].copy()
 category_excluded_n = int(
-    (category_raw["item_category"] != "(not set)").sum() - len(category_tbl)
+    (category_raw["item_category"] != "(not set)").sum() - len(_listed)
 )
-category_tbl["atc_pct"] = category_tbl["carting_sessions"] / category_tbl["viewing_sessions"] * 100
+_listed["atc_pct"] = _listed["carting_sessions"] / _listed["viewing_sessions"] * 100
+category_tbl = _listed[_listed["level"] == "product type"].copy()
 
-# Site average = pooled rate across ranked categories (metrics.site_average).
+# Brand, collection and parent pages: rate and interval only, not ranked.
+listing_other = _listed[_listed["level"] != "product type"].copy()
+listing_other["ci"] = [wilson_ci(k, n) for k, n in zip(listing_other["carting_sessions"], listing_other["viewing_sessions"])]
+_level_order = {"brand": 0, "collection": 1, "parent": 2}
+listing_other = listing_other.sort_values(
+    ["level", "viewing_sessions"], key=lambda c: c.map(_level_order) if c.name == "level" else -c)
+listing_other_rows = listing_other.to_dict("records")
+listing_level_counts = {lv: int((_listed["level"] == lv).sum()) for lv in ("product type", "brand", "collection", "parent")}
+
+# Average = pooled rate across ranked product-type pages (metrics.site_average).
 # E6 — flags and carts at stake come from metrics.flag_categories: a category is
 # "below" only when its whole Wilson 95% interval lies under the site average,
 # and carts at stake count flagged categories only. (23-odd intervals at 95%
@@ -342,6 +361,42 @@ category_rows = category_tbl.sort_values(["carts_at_stake", "atc_pct"], ascendin
 n_categories = len(category_tbl)
 cat_rate_min = float(category_tbl["atc_pct"].min())
 cat_rate_max = float(category_tbl["atc_pct"].max())
+# Price of the flagged pages' products against the other product types — the
+# confounder named in Recommendation 3.
+_flagged = category_tbl[category_tbl["status"] == "below"]
+flagged_median_price = float(_flagged["median_price"].median()) if len(_flagged) else None
+other_median_price   = float(category_tbl.loc[category_tbl["status"] != "below", "median_price"].median()) \
+                       if (category_tbl["status"] != "below").any() else None
+
+# The evidence that rows are listing contexts: products seen under more than one.
+category_overlap = q(queries.category_overlap_sql)
+overlap_items   = len(category_overlap)
+overlap_multi   = int((category_overlap["n_categories"] > 1).sum())
+_ex = category_overlap[category_overlap["n_categories"] > 1].head(1)
+overlap_example = ({"item": _ex["item_name"].iloc[0], "n": int(_ex["n_categories"].iloc[0]),
+                    "categories": _ex["categories"].iloc[0].split(" · ")} if len(_ex) else None)
+
+# ── 4c. Price bands: seen → carted by the item's own price ────────────────────
+# Price IS a product attribute, so this split has none of the listing caveat.
+print("Querying price bands...")
+price_band_raw = q(queries.price_band_sql)
+_band_order = [label for _, label in queries.PRICE_BANDS]
+price_bands = (price_band_raw.set_index("price_band").reindex(_band_order).dropna(subset=["viewing_sessions"])
+               .reset_index())
+price_bands["atc_pct"] = price_bands["carting_sessions"] / price_bands["viewing_sessions"] * 100
+price_bands["ci"] = [wilson_ci(int(k), int(n)) for k, n in zip(price_bands["carting_sessions"], price_bands["viewing_sessions"])]
+price_band_test = chi_square(price_bands["carting_sessions"], price_bands["viewing_sessions"])
+_pb_best, _pb_worst = price_bands.loc[price_bands["atc_pct"].idxmax()], price_bands.loc[price_bands["atc_pct"].idxmin()]
+price_best_band,  price_best_pct  = _pb_best["price_band"],  float(_pb_best["atc_pct"])
+price_worst_band, price_worst_pct = _pb_worst["price_band"], float(_pb_worst["atc_pct"])
+price_band_rows = price_bands.to_dict("records")
+
+# ── 4d. Landing pages ─────────────────────────────────────────────────────────
+# Where do the sessions that never see a product start? Pages with at least 1%
+# of sessions as landings and a saw-a-product rate 5pp or more under the site's
+# are the concrete targets for Recommendation 1.
+print("Querying landing pages...")
+landing_raw = q(queries.landing_pages_sql)
 
 # ── 5. Time-to-convert ────────────────────────────────────────────────────────
 print("Querying time-to-convert...")
@@ -501,6 +556,7 @@ if sens_all["sessions"] != total_sessions:
 vi_q, atc_q = evq_raw.loc["view_item"], evq_raw.loc["add_to_cart"]
 vi_avg_items   = float(vi_q["avg_items"])
 vi_multi_pct   = vi_q["multi_item_events"] / vi_q["events"] * 100
+vi_no_item_pct = vi_q["no_item_events"] / vi_q["events"] * 100
 atc_avg_items  = float(atc_q["avg_items"])
 atc_one_pct    = atc_q["one_carted_item_events"] / atc_q["events"] * 100
 carting_all    = int(ttc_df["carting_sessions"].iloc[0])
@@ -523,12 +579,62 @@ funnel_df["abs_drop_n"]    = (funnel_df["sessions"] - funnel_df["next_sessions"]
 biggest_drop_idx  = funnel_df["abs_drop_n"].idxmax()
 biggest_drop_step = funnel_df.loc[biggest_drop_idx, "step"]
 biggest_drop_n    = int(funnel_df.loc[biggest_drop_idx, "abs_drop_n"])
+# Every step's loss, largest first: the funnel section states the order rather
+# than asserting which leak is "second".
+step_losses = sorted(
+    ({"from": funnel_df.loc[i, "step"], "to": funnel_df.loc[i + 1, "step"],
+      "lost": int(funnel_df.loc[i, "abs_drop_n"]), "drop_pct": float(funnel_df.loc[i + 1, "drop_off"])}
+     for i in range(len(funnel_df) - 1)),
+    key=lambda r: -r["lost"])
 
 window_start = _start   # the partial-cohort note formats it
 
 # Cohort retention — full cohorts only, censored cells excluded automatically by .mean()
 avg_wk1 = round(float(cohort_pct_full["Week 1"].mean()), 1) if "Week 1" in cohort_pct_full.columns else None
 avg_wk2 = round(float(cohort_pct_full["Week 2"].mean()), 1) if "Week 2" in cohort_pct_full.columns else None
+
+# ── Retention trend ───────────────────────────────────────────────────────────
+# The average hides a trend: Week-1 return by calendar month of the cohort week
+# (full cohorts with an observed Week 1 only). Is a fall a change in channel mix
+# (more low-intent traffic) or a fall within every channel? mix_decomposition
+# answers it from the users' first-session channel.
+_wk1_series = cohort_pct_full["Week 1"].dropna() if "Week 1" in cohort_pct_full.columns else pd.Series(dtype=float)
+_wk1_month = pd.to_datetime(_wk1_series.index).to_period("M")
+wk1_by_month = [
+    {"month": m.strftime("%b"), "lo": float(g.min()), "hi": float(g.max()), "n": len(g)}
+    for m, g in _wk1_series.groupby(_wk1_month)
+]
+has_retention_trend = len(wk1_by_month) >= 2
+if has_retention_trend:
+    _mean = _wk1_series.groupby(_wk1_month).mean()
+    _peak_m, _trough_m = _mean.idxmax(), _mean.idxmin()
+    trend_peak   = next(r for r in wk1_by_month if r["month"] == _peak_m.strftime("%b"))
+    trend_trough = next(r for r in wk1_by_month if r["month"] == _trough_m.strftime("%b"))
+    # Same cohorts as the averages: full, with Week 1 inside the window.
+    cohort_ch = q(queries.cohort_channel_sql)
+    cohort_ch["cohort_week"] = cohort_ch["cohort_week"].astype(str)
+    cohort_ch = cohort_ch[cohort_ch["cohort_week"].isin(_wk1_series.index)]
+    cohort_ch["month"] = pd.to_datetime(cohort_ch["cohort_week"]).dt.to_period("M")
+    _by = lambda m: (cohort_ch[cohort_ch["month"] == m].groupby("medium")[["users", "wk1_users"]].sum())
+    _a, _b = _by(_peak_m), _by(_trough_m)
+    retention_mix = mix_decomposition(_a, _b, n="users", k="wk1_users")
+    # Channels with at least 1% of the peak month's users: did each one fall?
+    _big = _a[_a["users"] / _a["users"].sum() >= 0.01].index
+    _ra = _a.loc[_big, "wk1_users"] / _a.loc[_big, "users"] * 100
+    _rb = (_b.reindex(_big)["wk1_users"] / _b.reindex(_big)["users"] * 100)
+    retention_channels_n    = len(_big)
+    retention_channels_fell = int((_rb < _ra).sum())
+    retention_mix_share     = (retention_mix["mix_pp"] / retention_mix["change_pp"] * 100
+                               if retention_mix["change_pp"] else 0.0)
+    _top = _a["users"].sort_values(ascending=False).index[:3]
+    retention_channel_examples = [
+        {"channel": ch, "a": float(_ra[ch]), "b": float(_rb[ch])} for ch in _top if ch in _ra.index and pd.notna(_rb[ch])]
+else:
+    cohort_ch = None
+    trend_peak = trend_trough = retention_mix = None
+    retention_channels_n = retention_channels_fell = 0
+    retention_mix_share = 0.0
+    retention_channel_examples = []
 
 # Re-engagement sizing. WK1_TARGET is a planning target, not an industry
 # benchmark. Only full cohorts whose Week 1 is inside the window count, so the
@@ -566,6 +672,39 @@ lift_5pp_revenue   = round(lift_5pp_purchases * rev_per_purchase, 0)
 lift_5pp_rev_50 = round(lift_5pp_revenue * 0.50, 0)
 lift_5pp_rev_75 = round(lift_5pp_revenue * 0.75, 0)
 
+# ── Recommendation 1: the landing pages that fail to show products ───────────
+# The exact rate, not view_rate (rounded to 1 dp for display): sizing multiplies it
+# by tens of thousands of landings, so the rounding would move the result.
+weak_pages = weak_landing_pages(landing_raw, view_item_n / total_sessions * 100, total_sessions)
+weak_pages["new_pct"] = weak_pages["new_sessions"] / weak_pages["sessions"] * 100
+weak_pages["unattr_pct"] = weak_pages["unattributed_sessions"] / weak_pages["sessions"] * 100
+weak_page_rows   = weak_pages.to_dict("records")
+weak_pages_n     = len(weak_pages)
+weak_landings    = int(weak_pages["sessions"].sum())
+weak_share       = weak_landings / total_sessions * 100
+weak_extra_views = int(weak_pages["extra_views"].sum())
+weak_lost_share  = ((weak_pages["sessions"] - weak_pages["view_item"]).sum() / total_lost_discovery * 100
+                    if total_lost_discovery else 0.0)
+weak_unattr_pct  = (float(weak_pages["unattributed_sessions"].sum()) / weak_landings * 100) if weak_landings else 0.0
+weak_new_pct     = (float(weak_pages["new_sessions"].sum()) / weak_landings * 100) if weak_landings else 0.0
+# Same conversion logic and haircut as the +5pp scenario: a page fixed to the site
+# rate adds product-viewing sessions that convert at today's rate at best.
+rec1_orders      = round(weak_extra_views * view_to_purchase_rate)
+rec1_rev_high    = round(rec1_orders * rev_per_purchase, 0)
+rec1_rev_low     = round(rec1_rev_high * 0.50, 0)
+_home = landing_raw[landing_raw["landing_page"] == "/"]
+home_share    = float(_home["sessions"].iloc[0]) / total_sessions * 100 if len(_home) else None
+home_view_pct = float(_home["view_item"].iloc[0]) / float(_home["sessions"].iloc[0]) * 100 if len(_home) else None
+
+# ── Recommendation 2: cart recovery, sized with a stated assumption ──────────
+# CART_RECOVERY is a planning assumption (share of abandoned carts brought back
+# to checkout), not a benchmark. Recovered checkouts complete at today's rate.
+CART_RECOVERY = 0.10
+abandoned_n      = carted_n - checkout_n
+rec2_cart_orders = round(abandoned_n * CART_RECOVERY * checkout_to_purch / 100)
+rec2_cart_rev    = round(rec2_cart_orders * rev_per_purchase, 0)
+rec2_checkout_target = (checkout_n + abandoned_n * CART_RECOVERY) / carted_n * 100 if carted_n else 0.0
+
 # ── Executive summary (computed from real numbers) ────────────────────────────
 # One story, stated with numbers: the largest absolute loss is discovery; after
 # that, product views convert to carts at a category-dependent rate, and most
@@ -593,10 +732,10 @@ def chart_div(fig, div_id: str) -> str:
 
 chart_html = {
     "funnel":   chart_div(charts.funnel(funnel_df), "chart-funnel"),
-    "ttc":      chart_div(charts.time_to_convert(ttc_df), "chart-ttc"),
     "cohort":   chart_div(charts.cohort_heatmap(cohort_pct), "chart-cohort"),
     "channel":  chart_div(charts.channel(channel_tbl, view_rate), "chart-channel"),
     "category": chart_div(charts.category(category_tbl, category_benchmark), "chart-category"),
+    "price":    chart_div(charts.price_bands(price_bands), "chart-price"),
 }
 
 
@@ -607,7 +746,8 @@ chart_html = {
 # written from (§10f header: "Context vN"). A brief from an older context cannot
 # know the newer verdicts and may contradict the page, so it is flagged.
 #   v3 = computed verdicts, confounders, data-quality, new vs returning, significance
-BRIEF_CONTEXT_VERSION = 3
+#   v4 = listing-page levels, price bands, landing pages, retention trend, page recommendations
+BRIEF_CONTEXT_VERSION = 4
 brief_path = HERE / "product_brief_ga4_funnel.md"
 brief_html, brief_model, brief_stale, brief_generated = "", "AI", False, None
 if brief_path.exists():
@@ -650,6 +790,7 @@ notset_below_all = (notset_view_pct is not None
 cart_to_purchase = purchase_n / int(funnel_raw["add_to_cart"].iloc[0])
 cat_orders  = round(category_top3_at_stake * cart_to_purchase)
 cat_revenue = round(cat_orders * rev_per_purchase, 0)
+cat_revenue_low = round(cat_revenue * 0.50, 0)
 
 if not has_visitor_split:   # the template references these inside an if-block
     vs_new = vs_ret = visitor_test = visitor_cvr_ratio = rec2_rev_low = rec2_rev_high = None

@@ -1,0 +1,24 @@
+{#- The average Week-1 return hides a trend. Stated as per-month ranges of the
+    cohort rates, then tested: is a fall a change in channel mix, or a fall within
+    the channels? The verdict follows the computed share of the change the mix
+    explains. -#}
+{% if has_retention_trend %}
+<p><strong>The average hides a trend.</strong> Week-1 return by cohort month:
+{% for r in wk1_by_month %}<strong>{{ r.month }}</strong> {{ r.lo|fmt('.1f') }}{% if r.n > 1 %}–{{ r.hi|fmt('.1f') }}{% endif %}%{% if not loop.last %} · {% endif %}{% endfor %}.</p>
+{% if trend_peak.month != trend_trough.month %}
+<p>From {{ trend_peak.month }} to {{ trend_trough.month }} the pooled rate falls from
+{{ retention_mix.rate_a|fmt('.1f') }}% to {{ retention_mix.rate_b|fmt('.1f') }}%.
+{% if retention_mix_share|abs < 50 -%}
+<strong>It is not a change in traffic mix.</strong> At {{ trend_peak.month }}'s channel mix,
+{{ trend_trough.month }} cohorts would still have returned {{ retention_mix.rate_b_at_a_mix|fmt('.1f') }}%: the mix
+explains {{ retention_mix_share|fmt('.0f') }}% of the fall. Return fell within {{ retention_channels_fell }} of
+{{ retention_channels_n }} channels{% if retention_channel_examples %} ({% for e in retention_channel_examples %}{{ e.channel }} {{ e.a|fmt('.1f') }}% → {{ e.b|fmt('.1f') }}%{% if not loop.last %}, {% endif %}{% endfor %}){% endif %}.
+A seasonal effect is the likelier reading: holiday visitors come back less, whatever
+channel brought them. This data cannot separate one-off gift buyers from holiday timing.
+{%- else -%}
+<strong>Most of it is a change in traffic mix.</strong> At {{ trend_peak.month }}'s channel mix,
+{{ trend_trough.month }} cohorts would have returned {{ retention_mix.rate_b_at_a_mix|fmt('.1f') }}%: the mix
+explains {{ retention_mix_share|fmt('.0f') }}% of the fall, so lower-intent channels grew.
+{%- endif %}</p>
+{% endif %}
+{% endif %}

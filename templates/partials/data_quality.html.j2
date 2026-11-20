@@ -1,7 +1,6 @@
-{#- Stated near the top because these facts change how the headline numbers may
-    be read. Every figure is computed in this run. -#}
-  <p class="section-label">Data quality — read before the numbers</p>
-  <div class="card dq-card">
+{#- The full data-quality checks, in the appendix; the callout at the top of
+    the page summarises them. Every figure is computed in this run. -#}
+  <div class="dq-body">
     <div class="two-col" style="gap:28px">
       <div>
         <h4 class="dq-h">1 · A quarter of sessions have no channel tag — a tagging gap, not bots</h4>
@@ -53,7 +52,9 @@
         <p>{{ vi_multi_pct|fmt('.0f') }}% of <code>view_item</code> events carry several products
         (avg {{ vi_avg_items|fmt('.1f') }}), which makes them list impressions, not product-page views.
         So this page counts sessions that <em>saw</em> products, not ones that opened a
-        product page.
+        product page. A further {{ vi_no_item_pct|fmt('.0f') }}% of <code>view_item</code> events carry no
+        items at all: they count as "saw products" in the funnel but cannot be attributed to a
+        listing page or a price band.
         <code>add_to_cart</code> also fires from listings, with the whole list attached (avg
         {{ atc_avg_items|fmt('.0f') }} items); only the item with a quantity was carted
         ({{ atc_one_pct|fmt('.0f') }}% of events have exactly one), and category figures use that item

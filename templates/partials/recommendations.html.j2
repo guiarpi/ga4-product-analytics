@@ -1,0 +1,145 @@
+{#- Three recommendations, one format: problem, action, sized impact (in revenue
+    over the window), metric with target, confidence, main risk. Revenue ranges
+    use revenue per funnel purchase; the low end halves the conversion of the
+    added traffic. Targets marked as assumptions are planning choices. -#}
+  <div class="rec-grid">
+
+    <div class="rec">
+      <span class="rec-priority p1">Priority 1</span>
+      <h4>Fix the landing pages that don't show products</h4>
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>{{ total_lost_discovery|fmt(',') }} sessions ({{ (100 - view_rate)|fmt('.0f') }}%)</strong> never see a product.
+        {% if weak_pages_n %}{{ weak_pages_n }} landing page{{ 's' if weak_pages_n > 1 }} take{{ '' if weak_pages_n > 1 else 's' }} {{ weak_landings|fmt(',') }} landings
+        ({{ weak_share|fmt('.0f') }}% of sessions) but show a product to far fewer of them than the site's
+        {{ view_rate|fmt('.1f') }}%:{% endif %}</p>
+        {% if weak_pages_n %}
+        <table class="dev-table rec-table">
+          <thead><tr><th>Landing page</th><th>Landings</th><th>Saw a product</th></tr></thead>
+          <tbody>
+{% for r in weak_page_rows -%}
+<tr><td class="path">{{ r.landing_page }}</td><td>{{ r.sessions|int|fmt(',') }}</td><td class="dev-key">{{ r.view_pct|fmt('.1f') }}%</td></tr>
+{% endfor %}
+          </tbody>
+        </table>
+        {% endif %}
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Action</div>
+        <p>{% if weak_pages_n %}Open each of these pages as a first-time visitor: does the product grid
+        load, is the product in stock, and does <code>view_item</code> fire? {{ weak_new_pct|fmt('.0f') }}% of their
+        landings are first visits, so this is where new visitors meet the store. Fix what is broken,
+        then point campaigns and search snippets only at pages that show products.{% else %}No landing page with real
+        volume sits far below the site rate, so the loss is spread across pages: test product lists
+        above the fold on the home page.{% endif %}
+        {%- if home_share %} The home page takes {{ home_share|fmt('.0f') }}% of landings and shows a product to
+        {{ home_view_pct|fmt('.1f') }}% of them; test a product grid above the fold there next.{% endif %}</p>
+      </div>
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Sized impact</div>
+        {% if weak_pages_n %}
+        <p>At the site rate these pages would add ~{{ weak_extra_views|fmt(',') }} product-viewing sessions,
+        ~{{ rec1_orders|fmt(',') }} orders at today's {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw → purchase rate:
+        <strong>${{ rec1_rev_low|fmt(',.0f') }}–${{ rec1_rev_high|fmt(',.0f') }}</strong> over the window
+        (low end: the added sessions convert at half today's rate).</p>
+        {% else %}
+        <p>See the +5pp scenario in the funnel section: <strong>${{ lift_5pp_rev_50|fmt(',.0f') }}–${{ lift_5pp_revenue|fmt(',.0f') }}</strong>.</p>
+        {% endif %}
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Metric · target</div>
+        <p>Share of these pages' landings that see a product · {{ view_rate|fmt('.1f') }}% (the site rate)</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Confidence</div>
+        <p><strong>Medium.</strong> The low rates are measured; the cause (page not loading, product
+        unavailable, or <code>view_item</code> not firing) is not.</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Main risk</div>
+        <p>If it is a tracking gap, the fix raises the measured view rate but not orders.
+        {% if weak_pages_n %}{{ weak_unattr_pct|fmt('.0f') }}% of these landings carry no channel tag, so many are very short sessions.{% endif %}
+        {% if channel_is_driver %}Channel reach differs by {{ channel_view_spread|fmt('.1f') }}pp, so part of the gap may be the traffic, not the page.{% endif %}</p>
+      </div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p2">Priority 2</span>
+      <h4>Recover carts and bring visitors back</h4>
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>{{ cart_abandon_pct|fmt('.0f') }}% of carting sessions</strong> ({{ abandoned_n|fmt(',') }} of
+        {{ carted_n|fmt(',') }}) never begin checkout, and Week-1 return is <strong>{{ wk1_display }}</strong>.
+        {% if has_visitor_split %}Returning sessions buy at {{ visitor_cvr_ratio|fmt('.1f') }}× the rate of new ones.{% endif %}</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Action</div>
+        <p>For identifiable users, send a cart reminder <strong>within 24h</strong>, browsed products on
+        <strong>day 3</strong> and a win-back on <strong>day 7</strong>. Test against a holdout group.</p>
+      </div>
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Sized impact</div>
+        <p>Cart recovery: if {{ (CART_RECOVERY * 100)|fmt('.0f') }}% of abandoned carts reach checkout (an assumption) and
+        complete at today's {{ checkout_to_purch|fmt('.0f') }}%, ~{{ rec2_cart_orders|fmt(',') }} orders,
+        <strong>~${{ rec2_cart_rev|fmt(',.0f') }}</strong>.
+        {% if has_visitor_split %}Re-engagement: Week-1 return at {{ WK1_TARGET|fmt('.0f') }}% brings back ~{{ wk1_extra_users|fmt(',') }} users;
+        one session each, valued between a new and a returning session,
+        <strong>${{ rec2_rev_low|fmt(',.0f') }}–${{ rec2_rev_high|fmt(',.0f') }}</strong>.{% endif %}</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Metric · target</div>
+        <p>Cart → checkout {{ cart_to_checkout|fmt('.1f') }}% → {{ rec2_checkout_target|fmt('.1f') }}% · Week-1 return
+        {{ wk1_display }} → {{ WK1_TARGET|fmt('.0f') }}% (both planning assumptions)</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Confidence</div>
+        <p><strong>Low to medium.</strong> The gap between new and returning sessions is measured, but
+        users who return unprompted were keener to begin with, and this data cannot show whether any
+        re-engagement already runs.</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Main risk</div>
+        <p>Reach: only signed-in or subscribed users can be emailed, and most sessions here are
+        anonymous. Re-engaged users will convert below today's returning rate.</p>
+      </div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p3">Priority 3</span>
+      <h4>Audit the weakest product listings</h4>
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p>{% if category_top_targets %}{{ category_n_below }} of {{ n_categories }} product-type listing pages turn
+        sightings into carts below the {{ category_benchmark|fmt('.1f') }}% product-type average, with the whole 95%
+        interval below it. The most carts are at stake on {% for c in category_top_targets %}<strong>{{ c }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}.{% else %}No product-type listing sits
+        clearly below the {{ category_benchmark|fmt('.1f') }}% average: the seen → carted loss is spread across the catalogue.{% endif %}</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Action</div>
+        <p>{% if category_top_targets %}Review how {{ category_top_targets|join(', ') }} products are shown in listings: images,
+        price display, sizes and stock, and whether quick-add works. Change one page at a time against the
+        others as a control.{% else %}Look at price and stock across the catalogue rather than at single pages.{% endif %}</p>
+      </div>
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Sized impact</div>
+        <p>{% include "partials/rec3_impact.html.j2" %}</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Metric · target</div>
+        <p>Seen → carted on the audited pages · {{ category_benchmark|fmt('.1f') }}% (the product-type average)</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Confidence</div>
+        <p><strong>Medium.</strong> Flags need the whole interval below average, but with {{ n_categories }} pages tested about
+        {{ (n_categories * 0.05)|fmt('.0f') }} flag(s) could be chance.</p>
+      </div>
+      <div class="rec-section">
+        <div class="rec-section-label">Main risk</div>
+        <p>Price, not presentation. Items at {{ price_best_band }} cart at {{ price_best_pct|fmt('.1f') }}% and items at
+        {{ price_worst_band }} at {{ price_worst_pct|fmt('.1f') }}%{% if flagged_median_price is not none and other_median_price is not none %};
+        the flagged pages' products have a median price of ${{ flagged_median_price|fmt('.0f') }} against
+        ${{ other_median_price|fmt('.0f') }} for the rest{% endif %}. Part of each gap may be price.</p>
+      </div>
+    </div>
+
+  </div>

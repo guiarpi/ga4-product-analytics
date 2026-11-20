@@ -36,27 +36,6 @@ def funnel(funnel_df: pd.DataFrame) -> go.Figure:
     return fig
 
 
-def time_to_convert(ttc_df: pd.DataFrame) -> go.Figure:
-    """Median minutes between steps for converting sessions. The saw → cart bar
-    carries a dagger: its median is shaped by identical timestamps (see note)."""
-    x = ["Session → View Products", "View Products → Add to Cart",
-         "Add to Cart → Checkout", "Checkout → Purchase"]
-    y = [float(ttc_df[c].iloc[0]) for c in ("p50_s_to_v", "p50_v_to_c", "p50_c_to_k", "p50_k_to_p")]
-    text = [f"{v:.1f} min" for v in y]
-    text[1] += " †"
-    fig = go.Figure(go.Bar(
-        x=x, y=y, text=text, texttemplate="%{text}", textposition="outside",
-        marker_color="#4C78A8",
-        hovertemplate="<b>%{x}</b><br>Median: %{y:.1f} min<extra></extra>",
-    ))
-    fig.update_layout(height=360, showlegend=False,
-                      paper_bgcolor="white", plot_bgcolor="white",
-                      yaxis=dict(title="Median minutes (converting sessions)",
-                                 range=[0, max(y) * 1.25 if max(y) else 1]),
-                      margin=dict(t=20, b=10), xaxis_tickangle=-15)
-    return fig
-
-
 def cohort_heatmap(cohort_pct: pd.DataFrame) -> go.Figure:
     """Weekly cohort retention. Blues runs light → dark as the value rises, so
     darker = better retention; zmax=12 keeps the 0–12% band using the full
@@ -113,8 +92,8 @@ CATEGORY_COLOURS = {"below": "#ea580c", "above": "#4C78A8", "neutral": "#cbd5e1"
 
 
 def category(category_tbl: pd.DataFrame, site_average: float) -> go.Figure:
-    """Seen → carted per category, worst at the top, with Wilson 95% whiskers.
-    Orange = interval entirely below the site average, blue = entirely above,
+    """Seen → carted per product-type listing page, worst at the top, with Wilson
+    95% whiskers. Orange = interval entirely below the average, blue = entirely above,
     grey = cannot be told apart from average."""
     t = category_tbl
     fig = go.Figure(go.Bar(
@@ -135,14 +114,42 @@ def category(category_tbl: pd.DataFrame, site_average: float) -> go.Figure:
                       "<br>Carts at stake: %{customdata[1]}<extra></extra>",
     ))
     fig.add_vline(x=site_average, line_dash="dash", line_color="#6b7280",
-                  annotation_text=f"site average {site_average:.1f}%",
+                  annotation_text=f"product-type average {site_average:.1f}%",
                   annotation_position="top")
     fig.update_layout(
         height=max(300, 30 * len(t) + 80), showlegend=False,
         paper_bgcolor="white", plot_bgcolor="white",
         margin=dict(l=10, r=40, t=30, b=10),
         yaxis=dict(autorange="reversed"),   # lowest rate at the top
-        xaxis=dict(title="% of sessions that saw the category and carted an item from it",
+        xaxis=dict(title="% of sessions that saw the page's products and carted one",
                    range=[0, (float(t["ci_hi"].max()) if len(t) else 10) * 1.15]),
     )
     return fig
+
+
+def price_bands(bands: pd.DataFrame) -> go.Figure:
+    """Seen → carted by the item's own price band, cheapest first, with Wilson
+    95% whiskers. One colour: the bands are an ordered scale, not a ranking."""
+    lo = [c[0] for c in bands["ci"]]
+    hi = [c[1] for c in bands["ci"]]
+    rate = bands["atc_pct"].tolist()
+    fig = go.Figure(go.Bar(
+        x=bands["price_band"].tolist(), y=[round(v, 1) for v in rate],
+        text=[f"{v:.1f}%" for v in rate], texttemplate="%{text}", textposition="outside",
+        marker_color="#4C78A8",
+        error_y=dict(type="data", symmetric=False,
+                     array=[round(h - r, 2) for h, r in zip(hi, rate)],
+                     arrayminus=[round(r - l, 2) for l, r in zip(lo, rate)],
+                     color="#6b7280", thickness=1, width=4),
+        customdata=[[f"{int(v):,}", f"{l:.1f}–{h:.1f}%"] for v, l, h in zip(bands["viewing_sessions"], lo, hi)],
+        hovertemplate="<b>%{x}</b><br>Seen → carted: %{y:.1f}% (95% CI %{customdata[1]})"
+                      "<br>Sessions that saw an item in the band: %{customdata[0]}<extra></extra>",
+    ))
+    fig.update_layout(
+        height=300, showlegend=False, paper_bgcolor="white", plot_bgcolor="white",
+        margin=dict(l=10, r=10, t=20, b=10),
+        yaxis=dict(title="Seen → carted (%)",
+                   range=[0, max(hi) * 1.25 if hi else 1]),
+    )
+    return fig
+

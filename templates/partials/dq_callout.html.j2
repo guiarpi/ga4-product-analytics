@@ -1,0 +1,18 @@
+{#- Short version of the data-quality notes, stated before the numbers because
+    each one changes how a headline figure may be read. The full checks are in
+    the appendix. Every figure is computed in this run. -#}
+  <div class="card dq-card dq-callout">
+    <h4 class="dq-h">Read before the numbers</h4>
+    <ul>
+      <li><strong>{{ ua_share|fmt('.0f') }}% of sessions carry no channel tag.</strong> They are short
+      sessions, not bots, and stay in every rate; they hold {{ ua_lost_share|fmt('.0f') }}% of the
+      sessions that never see a product.</li>
+      <li><strong>"Saw products" means a product list, usually not a product page.</strong>
+      {{ vi_multi_pct|fmt('.0f') }}% of <code>view_item</code> events carry several products, and the
+      catalogue rows are the listing pages a product was shown in, not fixed product categories.</li>
+      <li><strong>Revenue counts funnel purchases only:</strong> {{ purchase_n|fmt(',') }} sessions that went
+      through every step in order (${{ total_revenue|fmt(',.0f') }}). In total {{ all_purch_sess|fmt(',') }}
+      sessions include a purchase.</li>
+    </ul>
+    <p class="dq-more">Details and checks: <a href="#appendix-data-quality">Appendix · Data quality</a>.</p>
+  </div>

@@ -1,14 +1,13 @@
 {#- Collapsed by default: the computed sections are the source of truth; the brief
     is a written interpretation of them, kept for the reader who wants prose. -#}
 {% if brief_html %}
-  <p class="section-label">Appendix</p>
   <details class="card appendix">
     <summary><span class="ai-badge">{{ brief_model }}</span> AI-generated product brief
       <span class="appendix-sub">written by an LLM from the computed results above;
       where they differ, the computed sections are correct</span></summary>
     <div class="appendix-body">
       {% if brief_stale -%}
-      <p class="caveat-note" style="margin-bottom:16px">This brief{% if brief_generated %} (generated {{ brief_generated }}){% endif %} was written from an earlier version of the analysis, before the computed verdicts, data-quality checks, significance tests and new-vs-returning split were passed to the model. Where it disagrees with the sections above, the sections above are correct. Regenerate it with Section 10 of the notebook.</p>
+      <p class="caveat-note" style="margin-bottom:16px">This brief{% if brief_generated %} (generated {{ brief_generated }}){% endif %} was written from an earlier version of the analysis, before some of the results on this page were passed to the model. Where it disagrees with the sections above, the sections above are correct. Regenerate it with Section 10 of the notebook.</p>
       {%- endif %}
       <div class="brief-body">{{ brief_html|safe }}</div>
     </div>
