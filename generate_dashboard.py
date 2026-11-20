@@ -548,7 +548,8 @@ WITH item_events AS (
     COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category,
     -- add_to_cart events carry the whole product list (~11 items); only the
     -- item with quantity > 0 was actually carted. view_item rows have no quantity.
-    IFNULL(it.quantity, 0) AS quantity
+    IFNULL(it.quantity, 0) AS quantity,
+    it.price AS price
   FROM `{DATASET}.events_*`, UNNEST(items) AS it
   WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
     AND event_name IN ('view_item','add_to_cart')
@@ -586,9 +587,19 @@ agg AS (
     COUNTIF(ts_first_view IS NOT NULL AND ts_last_cart >= ts_first_view) AS carting_sessions
   FROM sc
   GROUP BY item_category
+),
+-- Median listed price of the category's products as seen in product lists:
+-- price is a confounder for seen → carted (cheap items are an easier yes).
+price AS (
+  -- Exact median (PERCENTILE_CONT), not APPROX_QUANTILES: the approximate one
+  -- varies slightly between runs, and the notebook and dashboard must agree.
+  SELECT DISTINCT item_category,
+    PERCENTILE_CONT(price, 0.5) OVER (PARTITION BY item_category) AS median_price
+  FROM normalised
+  WHERE event_name = 'view_item' AND price IS NOT NULL
 )
-SELECT agg.*, labels.n_source_labels, labels.source_labels
-FROM agg JOIN labels USING (item_category)
+SELECT agg.*, labels.n_source_labels, labels.source_labels, price.median_price
+FROM agg JOIN labels USING (item_category) LEFT JOIN price USING (item_category)
 ORDER BY viewing_sessions DESC
 """)
 
@@ -628,6 +639,30 @@ category_tbl["status"] = ["below" if hi < category_benchmark else "above" if lo 
 category_n_below   = int((category_tbl["status"] == "below").sum())
 category_n_above   = int((category_tbl["status"] == "above").sum())
 category_n_neutral = int((category_tbl["status"] == "neutral").sum())
+
+# Price as a confounder: rank correlation between a category's median listed
+# price and its seen → carted rate. Reported either way — a weak result means
+# price cannot explain the ranking on its own, not that price is irrelevant.
+from scipy.stats import spearmanr
+_pr = category_tbl.dropna(subset=["median_price"])
+if len(_pr) >= 5:
+    _rho, _rho_p = spearmanr(_pr["median_price"], _pr["atc_pct"])
+    category_price_rho, category_price_p = float(_rho), float(_rho_p)
+else:
+    category_price_rho = category_price_p = None
+
+if category_price_rho is None:
+    category_price_note = ""
+else:
+    _price_reading = (
+        "That is too weak to explain the ranking on its own, but cheap categories may "
+        "still be an easier yes, so a low rate is not proof of a presentation problem."
+        if category_price_p >= 0.05 else
+        "Cheaper categories convert better, so part of each gap may be price, not presentation.")
+    category_price_note = (
+        '<p class="caveat-note"><strong>Price is not controlled.</strong> Across ranked '
+        "categories, median listed price and seen → carted rate have a rank correlation of "
+        f"{category_price_rho:+.2f} ({_html.escape(format_p(category_price_p))}). {_price_reading}</p>")
 
 # Carts at stake only for flagged categories: an unflagged gap may be noise.
 category_tbl["carts_at_stake"] = [
@@ -1138,36 +1173,100 @@ fig_category.update_layout(
 brief_html = ""
 brief_model = "AI"
 brief_stale_note = ""
-# Date the channel (E1) and category (E2) analyses were added. A brief generated
-# before this cannot know their results and may recommend work they already did.
-BRIEF_MIN_DATE = "2026-11-12"
+# The notebook stamps the brief with the version of the LLM context it was
+# written from (§10f header: "Context vN"). A brief from an older context cannot
+# know the newer verdicts and may contradict the page, so it is flagged.
+#   v3 = computed verdicts, confounders, data-quality, new vs returning, significance
+BRIEF_CONTEXT_VERSION = 3
 brief_path = HERE / "product_brief_ga4_funnel.md"
+
+
+def _md_inline(text: str) -> str:
+    """Inline markdown → HTML. Input is LLM output, so it is escaped first."""
+    t = _html.escape(text, quote=False)
+    codes = []
+    def _keep_code(m):
+        codes.append(m.group(1))
+        return f"\x00{len(codes) - 1}\x00"
+    t = re.sub(r"`([^`]+)`", _keep_code, t)                 # protect code spans
+    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
+               r'<a href="\2" target="_blank" rel="noopener">\1</a>', t)
+    t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
+    # Single-asterisk emphasis only when the asterisks hug the text, so a list
+    # marker or a stray "*" is never paired with the opening of "*So what*".
+    t = re.sub(r"(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])", r"<em>\1</em>", t)
+    t = re.sub("\x00(\\d+)\x00", lambda m: f"<code>{codes[int(m.group(1))]}</code>", t)
+    return t
+
+
+def md_to_html(text: str) -> str:
+    """Block markdown → HTML: headings, rules, paragraphs and nested lists."""
+    list_re = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
+    out, stack = [], []          # stack entries: [indent, tag, li_open]
+
+    def close_to(indent):
+        while stack and stack[-1][0] > indent:
+            level = stack.pop()
+            if level[2]:
+                out.append("</li>")
+            out.append(f"</{level[1]}>")
+
+    for raw in text.splitlines():
+        m = list_re.match(raw)
+        if m:
+            indent = len(m.group(1).expandtabs(4))
+            tag = "ol" if m.group(2)[0].isdigit() else "ul"
+            close_to(indent)
+            if stack and stack[-1][0] == indent:
+                if stack[-1][1] != tag:              # list type changed at this level
+                    close_to(indent - 1)
+                elif stack[-1][2]:
+                    out.append("</li>")
+                    stack[-1][2] = False
+            if not stack or stack[-1][0] < indent:
+                out.append(f"<{tag}>")
+                stack.append([indent, tag, False])
+            out.append(f"<li>{_md_inline(m.group(3))}")
+            stack[-1][2] = True
+            continue
+        if not raw.strip():
+            continue                                 # blank lines keep lists open
+        if stack and raw[:1].isspace():              # wrapped continuation of an item
+            out.append(" " + _md_inline(raw.strip()))
+            continue
+        close_to(-1)
+        line = raw.strip()
+        if line.startswith("### "):  out.append(f"<h4>{_md_inline(line[4:])}</h4>")
+        elif line.startswith("## "): out.append(f"<h3>{_md_inline(line[3:])}</h3>")
+        elif line.startswith("# "):  out.append(f"<h2>{_md_inline(line[2:])}</h2>")
+        elif re.fullmatch(r"-{3,}|\*{3,}", line): out.append("<hr>")
+        else:                        out.append(f"<p>{_md_inline(line)}</p>")
+    close_to(-1)
+    return "\n".join(out)
+
+
 if brief_path.exists():
     brief_md   = brief_path.read_text(encoding="utf-8")
     _gen  = re.search(r"\*Generated (\d{4}-\d{2}-\d{2})", brief_md)
     _mdl  = re.search(r"Model: ([^·*]+)", brief_md)
+    _ver  = re.search(r"Context v(\d+)", brief_md)
     brief_model = _html.escape(_mdl.group(1).strip()) if _mdl else "Claude"
-    if _gen and _gen.group(1) < BRIEF_MIN_DATE:
+    brief_ctx_version = int(_ver.group(1)) if _ver else 0
+    if brief_ctx_version < BRIEF_CONTEXT_VERSION:
         brief_stale_note = (
-            f'<p class="caveat-note" style="margin-bottom:16px">This brief was generated on '
-            f'{_gen.group(1)}, before the acquisition-channel and product-category analyses '
-            f'were added, so it does not reflect them and may recommend analysis that is '
-            f'already done above. Regenerate it with Section 10 of the notebook.</p>'
+            '<p class="caveat-note" style="margin-bottom:16px">This brief'
+            + (f" (generated {_gen.group(1)})" if _gen else "")
+            + " was written from an earlier version of the analysis, before the computed "
+              "verdicts, data-quality checks, significance tests and new-vs-returning split "
+              "were passed to the model. Where it disagrees with the sections above, the "
+              "sections above are correct. Regenerate it with Section 10 of the notebook.</p>"
         )
-    brief_body = "\n".join(brief_md.splitlines()[5:])
-    def md_to_html(text):
-        lines, out = text.splitlines(), []
-        for line in lines:
-            line = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", line)
-            line = re.sub(r"\*(.+?)\*",     r"<em>\1</em>", line)
-            if line.startswith("## "):   out.append(f"<h3>{line[3:]}</h3>")
-            elif line.startswith("# "): out.append(f"<h2>{line[2:]}</h2>")
-            elif re.match(r"^\d+\.", line): out.append(f"<li>{line[line.index('.')+1:].strip()}</li>")
-            elif line.startswith(("- ","* ")): out.append(f"<li>{line[2:].strip()}</li>")
-            elif line.strip() == "---": out.append("<hr>")
-            elif line.strip():          out.append(f"<p>{line}</p>")
-        return "\n".join(out)
-    brief_html = md_to_html(brief_body)
+        print(f"  NOTE: the AI brief is from context v{brief_ctx_version} (current: "
+              f"v{BRIEF_CONTEXT_VERSION}) — it is flagged as out of date on the page.")
+    # Body = everything after the header's horizontal rule.
+    _lines = brief_md.splitlines()
+    _hr = next((k for k, l in enumerate(_lines) if l.strip() == "---"), 4)
+    brief_html = md_to_html("\n".join(_lines[_hr + 1:]))
     print("AI product brief included.")
 else:
     print("No product_brief_ga4_funnel.md — run Section 10 of the notebook first.")
@@ -1377,6 +1476,22 @@ if has_visitor_split:
 """
 else:
     visitor_html = ""
+
+# ── Appendix: AI brief (collapsed) ────────────────────────────────────────────
+# Collapsed by default: the computed sections are the source of truth; the brief
+# is a written interpretation of them, kept for the reader who wants prose.
+appendix_brief_html = "" if not brief_html else f"""
+  <p class="section-label">Appendix</p>
+  <details class="card appendix">
+    <summary><span class="ai-badge">{brief_model}</span> AI-generated product brief
+      <span class="appendix-sub">written by an LLM from the computed results above;
+      where they differ, the computed sections are correct</span></summary>
+    <div class="appendix-body">
+      {brief_stale_note}
+      <div class="brief-body">{brief_html}</div>
+    </div>
+  </details>
+"""
 
 # ── Data-quality callout ──────────────────────────────────────────────────────
 # Stated near the top because three of these facts change how the headline
@@ -1627,9 +1742,17 @@ html = f"""<!DOCTYPE html>
   .brief-body h3:first-child {{ border-top: none; padding-top: 0; margin-top: 0; }}
   .brief-body p  {{ font-size: 0.87rem; color: #374151; margin-bottom: 10px;
                    line-height: 1.7; }}
-  .brief-body li {{ font-size: 0.87rem; color: #374151; margin: 5px 0 5px 20px;
+  .brief-body li {{ font-size: 0.87rem; color: #374151; margin: 5px 0;
                    line-height: 1.65; }}
   .brief-body hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }}
+  .brief-body ul, .brief-body ol {{ margin: 4px 0 10px; padding-left: 22px; }}
+  .brief-body li ul, .brief-body li ol {{ margin: 4px 0 2px; }}
+  .brief-body h4 {{ font-size: 0.92rem; font-weight: 700; color: #111827; margin: 14px 0 6px; }}
+  .brief-body code {{ font-size: 0.8rem; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }}
+  .appendix summary {{ cursor: pointer; font-weight: 700; color: #111827; list-style: revert; }}
+  .appendix .appendix-sub {{ display: block; font-weight: 400; font-size: 0.78rem;
+                            color: #6b7280; margin: 4px 0 0 18px; }}
+  .appendix .appendix-body {{ margin-top: 18px; }}
 
   /* Data-quality callout */
   .dq-card {{ border-left: 5px solid #d97706; }}
@@ -1970,6 +2093,7 @@ html = f"""<!DOCTYPE html>
         (<code>Lifestyle/Bags/</code> → <code>Bags</code>): {category_raw_labels} raw
         labels collapse into {len(category_raw)} categories, {category_merged_groups} of
         them merged from more than one label.</p>
+        {category_price_note}
       </div>
     </div>
     <table class="dev-table" style="margin-top:20px">
@@ -2121,15 +2245,6 @@ html = f"""<!DOCTYPE html>
 
   </div>
 
-  {f'''
-  <!-- AI Product Brief -->
-  <p class="section-label">AI-Generated Product Brief
-    <span class="ai-badge">{brief_model}</span></p>
-  <div class="card">
-    {brief_stale_note}
-    <div class="brief-body">{brief_html}</div>
-  </div>
-  ''' if brief_html else ""}
 
   <!-- ── How the AI brief is produced ───────────────────────────────────── -->
   <!-- Describes what the code actually does: the brief is written in notebook
@@ -2252,6 +2367,8 @@ html = f"""<!DOCTYPE html>
       </tbody>
     </table>
   </div>
+
+{appendix_brief_html}
 
   <!-- Footer -->
   <div class="footer">

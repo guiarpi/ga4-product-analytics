@@ -25,6 +25,7 @@ venv/
 
 # Generated output — run generate_dashboard.py to reproduce locally
 product_brief_ga4_funnel.md
+product_brief_context.json
 
 # Private Claude session guide
 CLAUDE.md
