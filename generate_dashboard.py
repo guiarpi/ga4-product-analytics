@@ -730,9 +730,30 @@ else:
 def chart_div(fig, div_id: str) -> str:
     return fig.to_html(full_html=False, include_plotlyjs=False, div_id=div_id)
 
+# Funnel segments for the chart's menu: pre-computed here, switched in the
+# browser with no server. Every segment uses the same sequential session funnel.
+_STEPS = list(queries.STEP_COLUMNS.values())   # sessions, view_item, … purchase
+_counts = lambda r: [int(r[c]) for c in _STEPS]
+funnel_segments = [("All sessions", _counts(funnel_raw.iloc[0])),
+                   ("Excluding (not set) · biased up", _counts(at))]
+if has_visitor_split:
+    funnel_segments += [("New sessions", _counts(_vis.loc["new"])),
+                        ("Returning sessions", _counts(_vis.loc["returning"]))]
+for _, r in device_raw.sort_values("sessions", ascending=False).iterrows():
+    funnel_segments.append((f"Device · {r['device_category'].capitalize()}", _counts(r)))
+_ch_seg = channel_raw.groupby(channel_dim)[_STEPS].sum()
+_ch_seg = _ch_seg[_ch_seg["sessions"] / _ch_seg["sessions"].sum() >= 0.01].sort_values("sessions", ascending=False)
+for _ch, r in _ch_seg.iterrows():
+    funnel_segments.append((f"Channel · {_ch}", _counts(r)))
+
+# Returning users per cohort and week, labelled like cohort_pct (censored → NaN).
+cohort_users = cohort_pivot.copy()
+cohort_users.index = cohort_users.index.astype(str)
+cohort_users.columns = [f"Week {c}" for c in cohort_users.columns]
+
 chart_html = {
-    "funnel":   chart_div(charts.funnel(funnel_df), "chart-funnel"),
-    "cohort":   chart_div(charts.cohort_heatmap(cohort_pct, cohort_pivot[0].tolist(), partial_label), "chart-cohort"),
+    "funnel":   chart_div(charts.funnel(funnel_df["step"].tolist(), funnel_segments), "chart-funnel"),
+    "cohort":   chart_div(charts.cohort_heatmap(cohort_pct, cohort_users, partial_label), "chart-cohort"),
     "channel":  chart_div(charts.channel(channel_tbl, view_rate), "chart-channel"),
     "category": chart_div(charts.category(category_tbl, category_benchmark), "chart-category"),
     "price":    chart_div(charts.price_bands(price_bands), "chart-price"),

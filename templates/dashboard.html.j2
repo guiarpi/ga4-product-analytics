@@ -32,6 +32,11 @@
   </div>
 </div>
 
+<!-- Sticky section menu: plain anchors, so it works with JavaScript off. -->
+<nav class="section-nav" aria-label="Sections">
+  <a href="#leak">Funnel</a><a href="#traffic">Traffic</a><a href="#device">Device</a><a href="#catalogue">Catalogue</a><a href="#retention">Retention</a><a href="#actions">Actions</a><a href="#appendix">Appendix</a>
+</nav>
+
 <div class="container">
 
   <!-- ── 1 · The answer ─────────────────────────────────────────────────── -->
@@ -66,11 +71,12 @@
 {% include "partials/dq_callout.html.j2" %}
 
   <!-- ── 2 · Where does the funnel leak? ────────────────────────────────── -->
-  <p class="section-label">Where does the funnel leak?</p>
+  <p class="section-label" id="leak">Where does the funnel leak?</p>
   <div class="card">
     <div class="chart-insight">
       <div>
         <h3 class="chart-title">{% if disc_is_biggest %}{{ (100 - view_rate)|fmt('.0f') }}% of sessions never see a product, and {{ cart_abandon_pct|fmt('.0f') }}% of carts are abandoned before checkout{% else %}The largest loss is {{ biggest_drop_step }} → next step ({{ biggest_drop_n|fmt(',') }} sessions){% endif %}</h3>
+        <p class="chart-hint">The menu switches the funnel to one segment; the title and the tables describe all sessions.</p>
         {{ charts.funnel|safe }}
       </div>
       <div>
@@ -89,15 +95,25 @@
           {% if disc_is_biggest %}Discovery is the largest loss by far. {% endif %}{{ cart_abandon_pct|fmt('.0f') }}% of carts never reach
           checkout{{ (', the largest loss once a shopper has shown purchase intent' if (cart_abandon_pct > (100 - checkout_to_purch)) else '') }}.</p>
         </div>
-        <div class="opportunity">
-          <h4>Revenue opportunity</h4>
-          <p>If the share of sessions that see a product rises by <strong>5 percentage points</strong> ({{ view_rate|fmt('.1f') }}% → {{ (view_rate + 5)|fmt('.1f') }}%):</p>
-          <span class="big-number">~{{ lift_5pp_purchases|fmt(',') }} extra orders</span>
-          <p>~<strong>${{ lift_5pp_revenue|fmt(',.0f') }}</strong> at ${{ rev_per_purchase|fmt(',.2f') }} per funnel purchase,
-          if the extra sessions convert at today's {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw-products → purchase rate.
-          Marginal traffic usually converts below average: at 75% of that rate
-          ${{ lift_5pp_rev_75|fmt(',.0f') }}, at 50% ${{ lift_5pp_rev_50|fmt(',.0f') }}. Planning range:
-          <strong>${{ lift_5pp_rev_50|fmt(',.0f') }}–${{ lift_5pp_revenue|fmt(',.0f') }}</strong>.</p>
+        {#- Initial values are rendered here (same arithmetic as the script below), so
+            the box reads correctly with JavaScript off. -#}
+        {% set _lift, _keep = 5, 75 %}
+        {% set _views = (total_sessions * _lift / 100)|int %}
+        {% set _orders = (_views * view_to_purchase_rate)|round|int %}
+        {% set _rev = (_orders * rev_per_purchase)|round %}
+        <div class="opportunity calc" id="calc" data-sessions="{{ total_sessions }}" data-vtp="{{ view_to_purchase_rate }}"
+             data-rpp="{{ rev_per_purchase }}" data-view="{{ view_rate }}">
+          <h4>Revenue opportunity calculator</h4>
+          <label class="calc-row">Sessions that see a product: +<output id="calc-lift-out">{{ _lift }}</output>pp
+            (<span id="calc-view">{{ view_rate|fmt('.1f') }}% → {{ (view_rate + _lift)|fmt('.1f') }}%</span>)
+            <input type="range" id="calc-lift" min="1" max="15" step="1" value="{{ _lift }}"></label>
+          <label class="calc-row">Added sessions convert at <output id="calc-keep-out">{{ _keep }}</output>% of today's
+            {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw-products → purchase rate
+            <input type="range" id="calc-keep" min="25" max="100" step="5" value="{{ _keep }}"></label>
+          <span class="big-number" id="calc-orders">~{{ (_orders * _keep / 100)|round|int|fmt(',') }} extra orders</span>
+          <p id="calc-rev">~<strong>${{ (_rev * _keep / 100)|round|fmt(',.0f') }}</strong> at ${{ rev_per_purchase|fmt(',.2f') }} per funnel
+          purchase. Planning range at 50–100% of today's rate: <strong>${{ (_rev * 0.5)|round|fmt(',.0f') }}–${{ _rev|fmt(',.0f') }}</strong>.</p>
+          <p class="calc-note">Marginal traffic usually converts below today's average, so 100% is an upper bound.</p>
         </div>
       </div>
     </div>
@@ -111,7 +127,7 @@
   </div>
 
   <!-- ── 3 · Is it the traffic? ─────────────────────────────────────────── -->
-  <p class="section-label">Is it the traffic? Acquisition channels</p>
+  <p class="section-label" id="traffic">Is it the traffic? Acquisition channels</p>
   <div class="card">
     <div class="chart-insight">
       <div>
@@ -121,12 +137,13 @@
       <div class="insight-panel">
         <h4>Conclusion</h4>
         {% include "partials/channel_verdict.html.j2" %}
+        <details class="caveat"><summary>How channel is defined</summary>
         <p class="caveat-note">{% include "partials/channel_basis_note.html.j2" %} The public sample obfuscates
         some values (<code>&lt;Other&gt;</code>, <code>(data deleted)</code>);
-        they are kept as reported rather than guessed.</p>
+        they are kept as reported rather than guessed.</p></details>
       </div>
     </div>
-    <table class="dev-table" style="margin-top:20px">
+    <table class="dev-table sortable" style="margin-top:20px">
       <thead>
         <tr>
           <th>Channel</th><th>Sessions</th><th>Share</th><th>Saw Product</th>
@@ -144,7 +161,7 @@
   </div>
 
   <!-- ── 4 · Is it the device? ──────────────────────────────────────────── -->
-  <p class="section-label">Is it the device?</p>
+  <p class="section-label" id="device">Is it the device?</p>
   <div class="card">
     <p class="lead"><strong>No.</strong> Session-to-purchase rates differ by
     <strong>{{ device_gap|fmt('.2f') }}pp</strong> across desktop, mobile and tablet
@@ -164,7 +181,7 @@
   </div>
 
   <!-- ── 5 · Where in the catalogue? ────────────────────────────────────── -->
-  <p class="section-label">Where in the catalogue? Listing pages and price</p>
+  <p class="section-label" id="catalogue">Where in the catalogue? Listing pages and price</p>
   <div class="card">
     <p class="lead">Each row is a <strong>listing page</strong> a product was shown in, not a fixed product
     category: {{ overlap_multi|fmt(',') }} of {{ overlap_items|fmt(',') }} products appear under more than one{% if overlap_example %}
@@ -182,7 +199,7 @@
         {% include "partials/category_price_note.html.j2" %}
       </div>
     </div>
-    <table class="dev-table" style="margin-top:20px">
+    <table class="dev-table sortable" style="margin-top:20px">
       <thead>
         <tr>
           <th>Product-type page</th><th>Sessions that saw it</th><th>Carting sessions</th>
@@ -215,7 +232,8 @@
         A session sees items in several bands, so bands are not additive.</p>
       </div>
     </div>
-    <p class="caveat-note section-note">A session "saw" a page's products when one appeared in a viewed
+    <details class="caveat section-note"><summary>How the catalogue figures are counted</summary>
+    <p class="caveat-note">A session "saw" a page's products when one appeared in a viewed
     product list. It counts as carted only if the item actually carted (the one with a quantity, not the
     rest of the list) is from that page and was carted after the first sighting, so rates are stricter than
     the {{ shoppers_atc|fmt('.0f') }}% shoppers figure. Pages with fewer than {{ MIN_CATEGORY_VIEWS|fmt(',') }}
@@ -224,11 +242,11 @@
     segment (<code>Lifestyle/Bags/</code> → <code>Bags</code>): {{ category_raw_labels }} raw labels collapse into
     {{ (category_raw)|length }}, {{ category_merged_groups }} merged from more than one; the level comes from the
     segment above (Hats under Apparel is a product type, Google under Shop by Brand a brand, Sale under the store
-    root a collection).</p>
+    root a collection).</p></details>
   </div>
 
   <!-- ── 6 · Do they come back? ─────────────────────────────────────────── -->
-  <p class="section-label">Do they come back? Weekly cohort retention</p>
+  <p class="section-label" id="retention">Do they come back? Weekly cohort retention</p>
   <div class="card">
     <div class="chart-insight flip">
       <div class="insight-panel">
@@ -239,10 +257,10 @@
         <strong>{{ ((avg_wk2 ~ '%') if avg_wk2 else '—') }}</strong>{% if wk1_warn %}, {{ (WK1_TARGET - avg_wk1)|fmt('.1f') }}pp below
         the {{ WK1_TARGET|fmt('.0f') }}% planning target (an assumption, not a benchmark){% endif %}.</p>
         {% include "partials/retention_trend.html.j2" %}
-        <h4 style="margin-top:16px">Two boundary effects</h4>
+        <details class="caveat"><summary>Two boundary effects in the cohorts</summary>
         {% include "partials/partial_cohort_note.html.j2" %}
         <p><strong>2 · Recent cohorts are right-censored.</strong> A user who joined in the final week has
-        not had the chance to return, so those cells are <strong>blank, not 0%</strong>.</p>
+        not had the chance to return, so those cells are <strong>blank, not 0%</strong>.</p></details>
       </div>
       <div>
         <h3 class="chart-title">{% if has_retention_trend and trend_peak.month != trend_trough.month %}Week-1 return fell from {{ trend_peak.lo|fmt('.0f') }}–{{ trend_peak.hi|fmt('.0f') }}% in {{ trend_peak.month }} cohorts to {{ trend_trough.lo|fmt('.0f') }}–{{ trend_trough.hi|fmt('.0f') }}% in {{ trend_trough.month }}{% else %}{{ wk1_display }} of a weekly cohort returns the next week{% endif %} <span class="muted">· % of each cohort with a session in each later week</span></h3>
@@ -254,7 +272,7 @@
 {% include "partials/new_vs_returning.html.j2" %}
 
   <!-- ── 7 · What should we do? ─────────────────────────────────────────── -->
-  <p class="section-label">What should we do?</p>
+  <p class="section-label" id="actions">What should we do?</p>
 {% include "partials/recommendations.html.j2" %}
 
   <!-- ── 8 · Appendix ───────────────────────────────────────────────────── -->
@@ -355,5 +373,56 @@
 
 </div>
 
+<script>
+// Small, dependency-free behaviours; the page is complete without them.
+(function () {
+  // Revenue opportunity calculator — same arithmetic as the server-rendered values.
+  var c = document.getElementById("calc");
+  if (c) {
+    var n = +c.dataset.sessions, vtp = +c.dataset.vtp, rpp = +c.dataset.rpp, view = +c.dataset.view;
+    var lift = document.getElementById("calc-lift"), keep = document.getElementById("calc-keep");
+    var fmt = function (v) { return Math.round(v).toLocaleString("en-US"); };
+    var update = function () {
+      var l = +lift.value, k = +keep.value;
+      var orders = Math.round(Math.floor(n * l / 100) * vtp), rev = Math.round(orders * rpp);
+      document.getElementById("calc-lift-out").textContent = l;
+      document.getElementById("calc-keep-out").textContent = k;
+      document.getElementById("calc-view").textContent = view.toFixed(1) + "% → " + (view + l).toFixed(1) + "%";
+      document.getElementById("calc-orders").textContent = "~" + fmt(orders * k / 100) + " extra orders";
+      document.getElementById("calc-rev").innerHTML = "~<strong>$" + fmt(rev * k / 100) + "</strong> at $" +
+        rpp.toFixed(2) + " per funnel purchase. Planning range at 50–100% of today's rate: <strong>$" +
+        fmt(rev * 0.5) + "–$" + fmt(rev) + "</strong>.";
+    };
+    lift.addEventListener("input", update); keep.addEventListener("input", update);
+  }
+  // Sortable tables: click a header; cells sort on their data-v value.
+  document.querySelectorAll("table.sortable").forEach(function (table) {
+    table.querySelectorAll("th").forEach(function (th, col) {
+      th.tabIndex = 0; th.title = "Sort by this column";
+      var sort = function () {
+        var asc = th.dataset.dir !== "asc";
+        table.querySelectorAll("th").forEach(function (h) { delete h.dataset.dir; });
+        th.dataset.dir = asc ? "asc" : "desc";
+        var body = table.tBodies[0], rows = Array.prototype.slice.call(body.rows);
+        rows.sort(function (a, b) {
+          var x = a.cells[col].dataset.v, y = b.cells[col].dataset.v;
+          var nx = parseFloat(x), ny = parseFloat(y);
+          var d = (isNaN(nx) || isNaN(ny)) ? String(x).localeCompare(String(y)) : nx - ny;
+          return asc ? d : -d;
+        });
+        rows.forEach(function (r) { body.appendChild(r); });
+      };
+      th.addEventListener("click", sort);
+      th.addEventListener("keydown", function (e) { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); sort(); } });
+    });
+  });
+  // A link to a collapsed appendix block opens it.
+  var openTarget = function () {
+    var el = location.hash && document.getElementById(location.hash.slice(1));
+    if (el && el.tagName === "DETAILS") el.open = true;
+  };
+  window.addEventListener("hashchange", openTarget); openTarget();
+})();
+</script>
 </body>
 </html>

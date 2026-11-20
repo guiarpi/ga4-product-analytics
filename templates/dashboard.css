@@ -194,12 +194,39 @@
   @media (max-width: 640px) {
     .container { padding: 24px 16px 48px; }
     .page-header { padding: 28px 16px 22px; }
+    .section-nav { padding: 8px 12px; }
     .card, .exec-card { padding: 20px 16px; }
     .kpi { padding: 16px; }
     .kpi-value { font-size: 1.7rem; }
     .dev-table, .saas-table { display: block; overflow-x: auto; white-space: nowrap; }
     .dev-table .path { white-space: normal; min-width: 150px; }
   }
+
+  /* Sticky section menu */
+  .section-nav { position: sticky; top: 0; z-index: 10; background: #0f172a; display: flex; gap: 4px;
+                 overflow-x: auto; padding: 8px 24px; white-space: nowrap; box-shadow: 0 1px 4px rgba(0,0,0,.2); }
+  .section-nav a { color: #cbd5e1; text-decoration: none; font-size: 0.8rem; font-weight: 600;
+                   padding: 4px 10px; border-radius: 6px; }
+  .section-nav a:hover, .section-nav a:focus { background: rgba(255,255,255,.12); color: white; }
+  [id] { scroll-margin-top: 56px; }
+
+  /* Collapsible caveats */
+  details.caveat { margin-top: 10px; }
+  details.caveat > summary { cursor: pointer; font-size: 0.8rem; font-weight: 600; color: #6b7280; }
+  details.caveat[open] > summary { margin-bottom: 8px; }
+  .chart-hint { font-size: 0.75rem; color: #9ca3af; margin: -6px 0 4px; }
+
+  /* Opportunity calculator */
+  .calc .calc-row { display: block; font-size: 0.82rem; color: #1e40af; margin: 8px 0 2px; line-height: 1.5; }
+  .calc input[type=range] { display: block; width: 100%; margin-top: 4px; accent-color: #1d4ed8; }
+  .calc output { font-weight: 700; }
+  .calc .calc-note { font-size: 0.75rem; opacity: 0.8; margin-top: 6px; }
+
+  /* Sortable table headers */
+  table.sortable th { cursor: pointer; user-select: none; }
+  table.sortable th:hover { color: #374151; }
+  table.sortable th[data-dir="asc"]::after { content: " ▲"; }
+  table.sortable th[data-dir="desc"]::after { content: " ▼"; }
 
   /* Two-col utility */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
