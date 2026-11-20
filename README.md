@@ -1,14 +1,81 @@
 # GA4 Product Funnel Analysis
 
+**Question:** only 0.77% of the Google Merchandise Store's sessions end in a purchase — where is the funnel losing people, and what should the team fix first?
+**Answer:** 79% of sessions never see a product — leaning a site problem rather than a traffic one — and four landing pages that rarely show a product are the first fix; after that, 65% of carts are abandoned before checkout.
+
 [![tests](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml/badge.svg)](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml)
-
-End-to-end product analytics project built on Google Analytics 4 (GA4) data in BigQuery. Covers session-scoped funnel analysis, revenue metrics, device and acquisition-channel segmentation, product-category conversion, time-to-convert, shoppers funnel, weekly cohort retention, and an AI-generated product brief — all in Python.
-
-**Dataset:** [`bigquery-public-data.ga4_obfuscated_sample_ecommerce`](https://console.cloud.google.com/bigquery?p=bigquery-public-data&d=ga4_obfuscated_sample_ecommerce) · Nov 2020 – Jan 2021
 
 **[→ View the live interactive dashboard](https://guiarpi.github.io/ga4-product-analytics/dashboard.html)**
 
 [![Dashboard preview](assets/dashboard-preview.png)](https://guiarpi.github.io/ga4-product-analytics/dashboard.html)
+
+A product-analytics study of Google's public GA4 BigQuery export (Nov 2020 – Jan 2021): SQL in BigQuery, metrics and statistics in pandas and SciPy, an interactive dashboard, and an LLM-written product brief whose every number traces back to the computed results.
+
+---
+
+## Key findings
+
+From 354,857 sessions in the [public obfuscated GA4 sample](https://console.cloud.google.com/bigquery?p=bigquery-public-data&d=ga4_obfuscated_sample_ecommerce). The rates and the method transfer; the absolute figures are illustrative.
+
+- **Discovery is the largest loss.** Only 21.2% of sessions see any product; 279,596 sessions (78.8%) leave without seeing one. Session-to-purchase conversion is 0.77%.
+- **Leaning site, not traffic — but borderline.** Every channel loses at least 70% of its sessions before a product. Product reach runs from 21.6% (cpc) to 30.3% (referral), an 8.7pp spread against a 10pp decision threshold.
+- **Four landing pages are the concrete target.** They take 76,426 landings (22% of sessions) and show a product to 8.9–11.8% of them, against 21.2% site-wide. At the site rate they would add ~316 orders, **$11.2k–$22.5k** over the window. Whether the cause is the page, stock or tracking is not yet known.
+- **Most carts are abandoned.** 65% of carting sessions (9,665 of 14,870) never begin checkout — the largest loss once a shopper has shown purchase intent.
+- **Six product-type listing pages cart below average.** Against a 22.1% product-type average, 6 of 12 sit below with 95% confidence; Bags, Women's and Men's / Unisex hold 1,054 of the 1,635 carts at stake. Price is a confounder: items at $10–20 are carted at 12.2%, items at $30–50 at 6.3%.
+- **Return visits fell in December, in every channel.** Next-week return averages 4.2%, from 5.0–6.7% for November cohorts to 2.4–3.3% for December. A change in channel mix explains only 7% of the fall, so the likelier reading is seasonal, not lower-intent traffic.
+- **Returning sessions buy at 4.1× the rate of new ones** (1.69% vs 0.42%) — partly self-selection, so re-engaged users are sized between the two rates.
+- **Device is not the lever:** purchase rates differ by 0.05pp across desktop, mobile and tablet (χ² p = 0.259).
+
+---
+
+## The analysis, section by section
+
+The notebook, the dashboard and this README share one numbering: one question per section, answer first.
+
+| # | Question | What is computed |
+|---|---|---|
+| 1 | **Setup and data** | Config, date range, event inventory |
+| 2 | **Data quality — read before the numbers** | What untagged sessions are (short, not bots); `view_item` as a list impression; why `session_start` events (354,970) exceed sessions (354,857): 113 repeated starts in 105 sessions |
+| 3 | **Where does the funnel leak?** | The sequential session funnel, revenue, landing pages, time to convert |
+| 4 | **Is it the traffic?** | The funnel by the session's own channel, with a chi-square test and Cramér's V |
+| 5 | **Is it the device?** | The funnel by device, with Wilson intervals and a chi-square test |
+| 6 | **Where in the catalogue?** | Shoppers funnel; seen → carted by product-type listing page (flagged only when the whole 95% interval is below average); price bands |
+| 7 | **Do they come back?** | Weekly cohort retention (censored cells blank, partial first week excluded), its trend split into channel mix and within-channel change, new vs returning |
+| 8 | **What should we do?** | Three recommendations in one format: problem, action, sized revenue, metric and target, confidence, main risk |
+| 9 | **AI-written product brief** | The computed results and verdicts, as JSON, to an LLM; the brief is checked against them and embedded in the dashboard |
+
+The dashboard is static HTML with interactivity: a funnel segment menu (all, excluding untagged, new, returning, each device, each channel), a revenue-opportunity calculator, sort and view toggles, sortable tables and collapsible caveats.
+
+---
+
+## Limitations
+
+- **Obfuscated public sample.** Google masks or deletes some values (`<Other>`, `(data deleted)`, `(not set)`); findings need validation on production data.
+- **No session-level traffic-source fields in the 2020 schema.** The session's channel is taken from the `medium` event parameter; 26% of sessions carry none. It agrees with GA4's user-level first-touch medium in only 52.9% of sessions.
+- **Price, but no cost or margin.** Item list prices are present and used for the price bands; there is no cost, margin, discount or stock data, so revenue is not profit.
+- **Untagged and very short sessions.** 26% of sessions have no channel tag and 26,132 have no `page_view`. The checks in Section 2 show they behave like ordinary short sessions rather than bots, but GA4's own bot filtering cannot be inspected.
+- **No user-ID stitching.** `user_pseudo_id` is a cookie: a person on two devices, or who clears cookies, counts as two users, so "new" sessions and next-week return are understated for real people.
+- **Listing pages, not product categories.** `item_category` records where a product was shown (414 of 420 products appear under more than one), and 37% of `view_item` events carry no items at all.
+- **Session-scoped funnel.** 2,127 purchasing sessions fall outside the sequential funnel, most because the cart was filled in an earlier visit; 260 funnel purchases record no revenue.
+- **The AI brief is not deterministic.** Each run can word things differently. The prompt forbids contradicting the computed verdicts and the run is checked so that every number in the brief appears in the context it was given, but the dashboard's computed sections are the source of truth.
+
+---
+
+## Metric glossary
+
+| Term | Meaning here |
+|---|---|
+| **Session** | One (`user_pseudo_id`, `ga_session_id`) pair. |
+| **Sequential conversion** | A session counts at a step only if it reached every earlier step in order, within the same session — as a closed funnel does in GA4. |
+| **Saw products** | The session has a `view_item` event; in this export that is mostly a product list, not a product page. |
+| **Listing page** | The `item_category` a product was shown under: a product type (Hats), brand (Google), collection (Sale) or parent page (Apparel). |
+| **Seen → carted** | Of sessions that saw a listing page's products, the share that carted one of them (the item with a quantity) after the first sighting. |
+| **Site average / product-type average** | Pooled, volume-weighted rate across the rows being compared. Internal comparisons only — no external benchmarks are used. |
+| **Carts at stake** | Extra carting sessions a listing page would gain at the average rate; counted only for pages whose whole 95% interval is below it. |
+| **Next-week return (Week-1)** | Share of a weekly cohort with any session in the next Monday-anchored calendar week — a 1–13-day window. Close to D7 retention, but not the same. |
+| **Unattributed / untagged session** | A session with no `medium` on any event, shown as `(not set)` in channel tables. |
+| **New vs returning** | New when GA4's `ga_session_number` is 1 (first session on that cookie ever), otherwise returning. |
+| **95% interval** | Wilson score interval on a rate; flags and "significant" use it, sizes use the point estimate. |
 
 ---
 
@@ -16,71 +83,24 @@ End-to-end product analytics project built on Google Analytics 4 (GA4) data in B
 
 | File | Description |
 |---|---|
-| `ga4_funnel_analysis.ipynb` | Main analysis notebook — all SQL, charts, and commentary |
-| `generate_dashboard.py` | Runs all queries and produces a standalone `dashboard.html` |
-| `config.py` | Project, dataset and date window for both — overridable with environment variables |
-| `dashboard.html` | Self-contained interactive dashboard (plotly.js embedded) — [live on GitHub Pages](https://guiarpi.github.io/ga4-product-analytics/dashboard.html), or open locally, works offline |
-| `index.html`, `.nojekyll` | GitHub Pages plumbing: redirect the site root to the dashboard, skip the Jekyll build |
-| `assets/dashboard-preview.png` | README screenshot of the dashboard |
-| `product_brief_ga4_funnel.md` | AI product brief written by Section 10 of the notebook — generated locally, gitignored |
-| `requirements.txt` | Python dependencies |
-| `future_enhancements.md` | Roadmap of next steps, with effort estimates and what is deliberately out of scope |
-| `DASHBOARD_GUIDE.md` | How to regenerate, QA, publish and adapt the dashboard |
-| `POWERBI_GUIDE.md` | Plan for a Power BI version of the analysis (not yet built) |
+| `ga4_funnel_analysis.ipynb` | The analysis, Sections 1–9, with every query shown and each chart saved as a static image so it renders on GitHub |
+| `dashboard.html` | The interactive dashboard — [live on GitHub Pages](https://guiarpi.github.io/ga4-product-analytics/dashboard.html), or open the file locally; works offline |
+| `generate_dashboard.py` | Runs the queries, computes every number and verdict, renders `dashboard.html` (`--dry-run` estimates the bytes each query would scan) |
+| `queries.py` | All SQL, shared by the notebook and the dashboard |
+| `metrics.py`, `stats_utils.py` | Pure calculations: flags, carts at stake, listing levels, landing-page targets, mix decomposition; Wilson intervals, chi-square, Cramér's V |
+| `charts.py` | Plotly figures, shared by the notebook and the dashboard |
+| `templates/` | The page (Jinja2): layout, CSS and the narrative's conditional wording |
+| `md_render.py` | Escapes and renders the AI brief's markdown for the page |
+| `config.py` | Project, dataset, date window and query cost cap — all overridable with environment variables |
+| `tests/` | pytest suite — no BigQuery, credentials or network needed |
+| `.github/workflows/tests.yml` | CI: lint and tests on Python 3.11–3.13 |
+| `requirements.txt`, `requirements-dev.txt` | Dependencies (ranges); test tools |
+| `product_brief_ga4_funnel.md`, `product_brief_context.json` | The AI brief and the exact context it was written from — generated by Section 9, gitignored |
+| `future_enhancements.md` | Roadmap |
+| `DASHBOARD_GUIDE.md` | How to regenerate, check, publish and adapt the dashboard |
+| `POWERBI_GUIDE.md` | Plan for a Power BI version (not yet built) |
+| `index.html`, `.nojekyll`, `assets/` | GitHub Pages plumbing and the README screenshot |
 | `LICENSE` | MIT |
-
----
-
-## Analysis overview
-
-### 1 · Session-scoped funnel
-Converts the GA4 event stream into a sequential 5-step funnel: **Session Start → View Item → Add to Cart → Begin Checkout → Purchase**. Each session is counted at a step only if it completed all prior steps in order within the same session — matching how the GA4 UI calculates funnel conversion and avoiding the inflation caused by carrying past-purchase behaviour into new sessions.
-
-The grain is `(user_pseudo_id, ga_session_id)`. Session IDs are extracted from the nested `event_params` array using `UNNEST`.
-
-### 2 · Revenue metrics
-Total revenue, average order value, and median order value for converting sessions. The mean/median gap surfaces revenue concentration from high-value orders.
-
-### 3 · Device breakdown
-The same sequential funnel split by `device.category` (desktop, mobile, tablet). Used to assess whether device type is a meaningful driver of conversion loss.
-
-### 4 · Acquisition channel breakdown
-The same funnel split by channel, to decide whether the ~79% "never views a product" loss is a **site** problem (uniform across channels) or a **traffic-quality** problem (concentrated in some). A 10pp spread in session → view-item rate is the decision threshold, and the dashboard's conclusion flips on it.
-
-Channel is the session's own `medium` from `event_params`, not `traffic_source.medium` — the latter is the user's **first-touch** medium and would attribute every returning session to the campaign that first acquired the user. The notebook quantifies how often the two disagree.
-
-### 5 · Product category view → cart
-Ranks `item_category` by view → add-to-cart rate using `UNNEST(items)`, at (session, category) grain. Categories are prioritised by **carts at stake** — the extra carting sessions if a category converted at the volume-weighted benchmark — so a high-traffic category with a moderate gap outranks a niche one with a dramatic rate. This turns "audit the product pages" into a ranked starting list.
-
-GA4's `item_category` mixes flat labels (`Bags`) with paths (`Lifestyle/Bags/`), so labels are normalised to their last path segment in SQL — before the per-session grouping, so a session that viewed both counts once — and every merge is listed for review in the notebook.
-
-### 6 · Time-to-convert
-Median time (in hours) between each funnel step, using `APPROX_QUANTILES` on microsecond-precision event timestamps. Restricted to sessions that completed the full funnel, so this measures deliberation time for buyers, not abandonment.
-
-### 7 · Shoppers funnel
-An alternative funnel starting at `view_item` — isolating users who demonstrated product intent. Separating this from the full-session funnel reveals the true add-to-cart rate among engaged users and sizes the product discovery gap.
-
-### 8 · Weekly cohort retention
-Users grouped by the week of their first session, tracked week-over-week. The heatmap shows what percentage of each cohort returned in subsequent weeks. Analogous to D7/D14 retention in a SaaS context.
-
-### 9 · AI product brief (Section 10 of the notebook)
-Structured analysis context is passed to an LLM to generate a product brief with: executive summary, key findings, hypotheses, recommended actions, and metrics to track next. Demonstrates AI-augmented analysis beyond chart generation.
-
-The committed `dashboard.html` already embeds a pre-generated brief, so it renders fully without an API key. The markdown file itself is generated output and gitignored — to produce it, see the API key setup options below.
-
----
-
-## Key findings
-
-From 354,857 sessions (Nov 2020 – Jan 2021, public obfuscated sample — the rates and method transfer, the absolute figures should not be quoted as benchmarks):
-
-- **78.8% of sessions never reach a product page** (279,596 visits) — the dominant loss, upstream of everything else. Session-to-purchase conversion is 0.80%.
-- **Discovery, not the product page, is the gap:** 19.7% of product viewers add to cart, against 4.2% of all sessions.
-- **The leak is mostly on the site, not in the traffic — but it is borderline.** Product-page reach ranges from 21.6% (cpc) to 30.3% (referral), an 8.7pp spread against a 10pp decision threshold. Channel is the session's own medium; it agrees with GA4's first-touch `traffic_source.medium` in only 52.9% of sessions. 26.2% of sessions carry no session-level medium and reach a product page at just 6.7% — a block worth investigating on its own.
-- **Three categories hold most of the product-page opportunity.** Against a 25.0% volume-weighted view → cart benchmark, YouTube (15.6%), Apparel (19.1%) and Bags (17.6%) account for 1,185 of the 2,157 carts at stake across the 23 ranked categories.
-- **Sizing:** a 5pp lift in session → product-page rate is worth ~641 orders — $25K–$50K at the $79 AOV, depending on how well incremental traffic converts.
-- **Buyers are quick, but few return:** median session-to-purchase time is ~16 minutes; Week-1 retention averages 4.2% (full cohorts only, right-censored weeks excluded).
-- **Device is not the lever:** purchase rates differ by 0.05pp across desktop, mobile and tablet.
 
 ---
 
@@ -88,22 +108,15 @@ From 354,857 sessions (Nov 2020 – Jan 2021, public obfuscated sample — the r
 
 ### Prerequisites
 
-- Python 3.9+
-- A Google Cloud project with BigQuery API enabled
-- Access to `bigquery-public-data` (available to all GCP accounts)
+- Python 3.11 or later. The committed outputs were produced on Python 3.13; CI tests 3.11, 3.12 and 3.13.
+- A Google Cloud project with the BigQuery API enabled; the public dataset is readable from any project.
+- For the notebook's static chart images: [kaleido](https://pypi.org/project/kaleido/) and a local Chrome. Without them the charts stay interactive only.
 
-### Install dependencies
+### Install and authenticate
 
 ```bash
 pip install -r requirements.txt
-```
-
-### Authenticate with Google Cloud
-
-This project uses [Application Default Credentials](https://cloud.google.com/docs/authentication/application-default-credentials) — no service account key file needed.
-
-```bash
-gcloud auth application-default login
+gcloud auth application-default login     # Application Default Credentials — no key file
 ```
 
 ### Set your project (and optionally your own data)
@@ -122,14 +135,14 @@ export GA4_DATE_START="20240101"   # YYYYMMDD, inclusive
 export GA4_DATE_END="20240331"
 ```
 
-Every query runs under a cost cap of 5 GB billed per query: BigQuery refuses, without charging, any query that would bill more. On the public sample the largest query scans about 1.6 GB, and a full dashboard run about 11 GB. A larger export may need a higher cap, and you can see what a run would scan before running it:
+Every query runs under a cost cap of 5 GB billed per query: BigQuery refuses, without charging, any query that would bill more. On the public sample the largest query scans about 1.6 GB, and a full dashboard run about 15.5 GB. A larger export may need a higher cap, and you can see what a run would scan before running it:
 
 ```bash
 python generate_dashboard.py --dry-run     # free estimate per query; runs nothing
 export GA4_MAX_BYTES_BILLED="20GB"         # raise the per-query cap if needed
 ```
 
-Invalid values are rejected before any query runs. On your own data, review the dashboard's "About this dataset" card and recommendation text, which describe the public sample.
+Invalid values are rejected before any query runs. On your own data, review the dashboard's "About this dataset" block and the recommendation text, which describe the public sample.
 
 ### Run the notebook
 
@@ -137,23 +150,13 @@ Invalid values are rejected before any query runs. On your own data, review the 
 jupyter notebook ga4_funnel_analysis.ipynb
 ```
 
-Run all cells in order. Sections 1–9 have no API key dependency. Section 10 (AI brief) requires an LLM API key — choose one:
+Restart the kernel and run all cells. Sections 1–8 need no API key. Section 9 writes the AI brief with an LLM — choose one:
 
-**Option A — Anthropic Claude (paid, ~$0.01 per run)**
-```bash
-export ANTHROPIC_API_KEY="sk-ant-..."
-```
-Get a key at [console.anthropic.com](https://console.anthropic.com) → API Keys.
+- **Anthropic Claude (paid):** `export ANTHROPIC_API_KEY=...` — key from [console.anthropic.com](https://console.anthropic.com).
+- **Google Gemini (free tier):** `export GEMINI_API_KEY=...` and `pip install google-genai` — key from [aistudio.google.com](https://aistudio.google.com). Used only when Claude produced no brief. The default model is `gemini-3.5-flash`; override with `GEMINI_MODEL` ([current models](https://ai.google.dev/gemini-api/docs/models)).
+- **Neither:** Section 9 is skipped; the committed dashboard keeps the brief it already embeds.
 
-**Option B — Google Gemini (free, no credit card)**
-```bash
-export GEMINI_API_KEY="AIza..."
-pip install google-genai
-```
-Get a free key at [aistudio.google.com](https://aistudio.google.com) → "Get API key". Leave `ANTHROPIC_API_KEY` unset and run Section 10 as normal — **Section 10e** uses Gemini only when 10d produced no brief. The default model is `gemini-3.5-flash`; model IDs change often, so override it with `export GEMINI_MODEL="..."` (current list: [ai.google.dev/gemini-api/docs/models](https://ai.google.dev/gemini-api/docs/models)).
-
-**Option C — Skip (dashboard still works)**
-The committed `dashboard.html` already contains a pre-generated brief. If you regenerate the dashboard without `product_brief_ga4_funnel.md` present, the brief section is simply omitted.
+Keys are read from environment variables only — never paste one into the notebook, whose outputs are committed.
 
 ### Generate the dashboard
 
@@ -161,7 +164,7 @@ The committed `dashboard.html` already contains a pre-generated brief. If you re
 python generate_dashboard.py
 ```
 
-Opens as `dashboard.html` — a fully self-contained file (~5 MB, plotly.js embedded) with no runtime or network dependencies. If `product_brief_ga4_funnel.md` exists (generated in Section 10 of the notebook), it will be embedded in the dashboard automatically.
+Writes `dashboard.html`, a self-contained file (~5 MB, plotly.js embedded). If `product_brief_ga4_funnel.md` exists it is embedded, and flagged on the page if it was written from an older version of the analysis.
 
 ### Run the tests
 
@@ -170,7 +173,7 @@ pip install -r requirements.txt -r requirements-dev.txt
 python -m pytest -q
 ```
 
-The suite needs no BigQuery access, credentials or network. It checks the SQL builders, statistics, category flags, templates and config validation. GitHub Actions runs it, with a pyflakes lint, on Python 3.11–3.13 for every push and pull request.
+The suite checks the SQL builders, statistics, flags, chart menus, templates and config validation, with no BigQuery access, credentials or network. GitHub Actions runs it with a pyflakes lint on every push and pull request.
 
 ---
 
@@ -178,38 +181,41 @@ The suite needs no BigQuery access, credentials or network. It checks the SQL bu
 
 | Pattern | Where |
 |---|---|
-| `UNNEST(event_params)` scalar subquery | Extracting `ga_session_id` from the nested array |
-| Sequential `COUNTIF` chain | Enforcing step order within a session |
-| `APPROX_QUANTILES` | Efficient percentile computation for time-to-convert |
-| `DATE_TRUNC(..., WEEK(MONDAY))` | Weekly cohort bucketing |
-| `_TABLE_SUFFIX BETWEEN` | Partition pruning to control BigQuery costs |
-| `FROM events_*, UNNEST(items)` | Item-level grain for the product category analysis |
-| `ARRAY_AGG(x ORDER BY ts LIMIT 1)[OFFSET(0)]` | First non-null session medium across a session's events |
+| `(SELECT value.int_value FROM UNNEST(event_params) …)` | Session ID, medium, page path and engagement from the nested parameters |
+| Sequential step flags (`ts_v >= ts_s AND …`) | Enforcing step order within a session |
+| `_TABLE_SUFFIX BETWEEN` | Partition pruning: only the window's daily tables are scanned |
+| `FROM events_*, UNNEST(items)` | Item-level grain for listing pages and price bands |
+| `ARRAY_AGG(x IGNORE NULLS ORDER BY ts, x LIMIT 1)` | A session's first medium and landing page, deterministically |
+| `GROUP BY GROUPING SETS` | Several data-quality splits from one scan |
+| `PERCENTILE_CONT` / `PERCENTILE_DISC` windows | Exact medians, so every run gives the same page |
+| `DATE_TRUNC(…, WEEK(MONDAY))` | Weekly cohort bucketing |
+| `maximum_bytes_billed`, dry runs | Per-query cost cap and free size estimates |
 
-All SQL is written for **BigQuery Standard SQL** and runs against the public GA4 sample dataset with no modifications.
+All SQL is BigQuery Standard SQL and lives in `queries.py`.
 
 ---
 
 ## B2B SaaS translation
 
-The funnel events map directly to SaaS product analytics concepts:
+The funnel and retention logic carry over to product events; the event names, the session definition and the retention window need to be mapped to the product's own.
 
-| GA4 event | SaaS equivalent |
+| GA4 event | SaaS analogue |
 |---|---|
-| `session_start` | User login / app open |
-| `view_item` | Feature discovery — navigating to a core feature |
-| `add_to_cart` | Feature first use — attempting the core action |
-| `begin_checkout` | Workflow initiated — e.g. creating a first record |
+| `session_start` | Login / app open |
+| `view_item` | Reaching a core feature |
+| `add_to_cart` | First attempt at the core action |
+| `begin_checkout` | Starting the key workflow, e.g. creating a first record |
 | `purchase` | Activation — completing the key value moment |
-| Week-1 retention | D7 retention after first login |
-
-The SQL patterns, funnel methodology, and retention framework apply without modification to any event-based product analytics dataset.
+| Next-week return | Early retention — closest to D7, but a calendar-week measure (1–13 days) |
 
 ---
 
 ## Tech stack
 
-- **Python** — pandas, Plotly, google-cloud-bigquery
-- **BigQuery** — Standard SQL, partitioned `events_*` tables, GA4 export schema
-- **Plotly** — Interactive charts rendered to standalone HTML
-- **Anthropic API / Google Gemini** — LLM for AI-generated product briefs (Gemini free tier supported)
+- **BigQuery** — Standard SQL on the GA4 export schema; partition pruning, cost cap, dry runs
+- **Python** — pandas, SciPy (Wilson intervals, chi-square), google-cloud-bigquery
+- **Plotly** — interactive charts; kaleido for the notebook's static images
+- **Jinja2** — the dashboard page, autoescaped
+- **Anthropic API / Google Gemini** — the AI-written brief (Gemini free tier supported)
+- **pytest, pyflakes, GitHub Actions** — tests and lint on every push
+- **GitHub Pages** — hosts the dashboard
