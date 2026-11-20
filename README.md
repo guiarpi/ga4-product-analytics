@@ -16,6 +16,7 @@ End-to-end product analytics project built on Google Analytics 4 (GA4) data in B
 |---|---|
 | `ga4_funnel_analysis.ipynb` | Main analysis notebook — all SQL, charts, and commentary |
 | `generate_dashboard.py` | Runs all queries and produces a standalone `dashboard.html` |
+| `config.py` | Project, dataset and date window for both — overridable with environment variables |
 | `dashboard.html` | Self-contained interactive dashboard (plotly.js embedded) — [live on GitHub Pages](https://guiarpi.github.io/ga4-product-analytics/dashboard.html), or open locally, works offline |
 | `index.html`, `.nojekyll` | GitHub Pages plumbing: redirect the site root to the dashboard, skip the Jekyll build |
 | `assets/dashboard-preview.png` | README screenshot of the dashboard |
@@ -103,13 +104,23 @@ This project uses [Application Default Credentials](https://cloud.google.com/doc
 gcloud auth application-default login
 ```
 
-### Set your project ID
+### Set your project (and optionally your own data)
 
-In both `ga4_funnel_analysis.ipynb` and `generate_dashboard.py`, update:
+Nothing needs editing in code: `config.py` reads its settings from environment variables, shared by the notebook and the dashboard script.
 
-```python
-PROJECT_ID = "your-gcp-project-id"
+```bash
+export GA4_PROJECT_ID="your-gcp-project-id"   # runs (and pays for) the queries
 ```
+
+If unset, it falls back to `GOOGLE_CLOUD_PROJECT`, then to your `gcloud` default project. The dataset and dates default to Google's public GA4 sample (Nov 2020 – Jan 2021). To run on your own GA4 export instead:
+
+```bash
+export GA4_DATASET="your-project.analytics_123456789"
+export GA4_DATE_START="20240101"   # YYYYMMDD, inclusive
+export GA4_DATE_END="20240331"
+```
+
+Invalid values are rejected before any query runs. On your own data, review the dashboard's "About this dataset" card and recommendation text, which describe the public sample.
 
 ### Run the notebook
 

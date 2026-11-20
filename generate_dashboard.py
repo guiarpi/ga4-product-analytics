@@ -1,4 +1,4 @@
-#!/opt/miniconda3/bin/python
+#!/usr/bin/env python3
 """
 generate_dashboard.py
 ---------------------
@@ -6,8 +6,11 @@ Runs all BigQuery analysis queries and produces a standalone dashboard.html
 that anyone can open in a browser — no Python, no Jupyter required.
 
 Usage:
-    python generate_dashboard.py          # conda (base) — recommended
-    /opt/miniconda3/bin/python generate_dashboard.py
+    python generate_dashboard.py
+
+Project, dataset and date window come from config.py and can be overridden
+with GA4_PROJECT_ID, GA4_DATASET, GA4_DATE_START and GA4_DATE_END — see the
+README. Defaults run against Google's public GA4 sample.
 
 Output: dashboard.html
 """
@@ -24,17 +27,22 @@ import pandas as pd
 import plotly.express as px
 import plotly.graph_objects as go
 from plotly.offline import get_plotlyjs
-from google.cloud import bigquery
 
 # ── Config ─────────────────────────────────────────────────────────────────────
-PROJECT_ID = "your-gcp-project"
-DATASET    = "bigquery-public-data.ga4_obfuscated_sample_ecommerce"
-DATE_START = "20201101"
-DATE_END   = "20210131"
-OUTPUT     = Path("dashboard.html")
+# All run settings live in config.py (environment-variable overrides); nothing
+# about the project, dataset or window is hardcoded in this script.
+from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE,
+                    make_client, describe)
 
-client = bigquery.Client(project=PROJECT_ID)
-print(f"Connected  |  {DATE_START} → {DATE_END}")
+HERE = Path(__file__).resolve().parent     # paths work from any working directory
+OUTPUT = HERE / "dashboard.html"
+
+client = make_client()
+# Console only (never saved), so the project is shown here and nowhere else.
+print(f"Connected  |  {describe(client, include_project=True)}")
+if not IS_PUBLIC_SAMPLE:
+    print("  NOTE: the 'About This Dataset' card and some recommendation text describe "
+          "the public sample — review them before sharing this dashboard.")
 
 
 def q(sql: str) -> pd.DataFrame:
@@ -852,7 +860,7 @@ brief_stale_note = ""
 # Date the channel (E1) and category (E2) analyses were added. A brief generated
 # before this cannot know their results and may recommend work they already did.
 BRIEF_MIN_DATE = "2026-11-12"
-brief_path = Path("product_brief_ga4_funnel.md")
+brief_path = HERE / "product_brief_ga4_funnel.md"
 if brief_path.exists():
     brief_md   = brief_path.read_text(encoding="utf-8")
     _gen  = re.search(r"\*Generated (\d{4}-\d{2}-\d{2})", brief_md)
@@ -1204,8 +1212,8 @@ html = f"""<!DOCTYPE html>
       </div>
       <div>
         <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Dataset</strong>
-        Google's public obfuscated GA4 export on BigQuery<br>
-        (<code>bigquery-public-data.ga4_obfuscated_sample_ecommerce</code>)<br>
+        {"Google's public obfuscated GA4 export on BigQuery<br>" if IS_PUBLIC_SAMPLE else "GA4 BigQuery export<br>"}
+        (<code>{_html.escape(DATASET)}</code>)<br>
         {date_label} · {total_sessions:,} sessions · {unique_users:,} unique users
       </div>
       <div>
@@ -1759,9 +1767,8 @@ html = f"""<!DOCTYPE html>
     step N−1 first within the same session. This matches GA4 UI funnel behaviour and avoids
     inflating conversion by attributing past-purchase behaviour to new sessions.<br><br>
     <strong>Data note</strong><br>
-    Source: Google's public obfuscated GA4 e-commerce sample dataset.
-    Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention
-    methodology are valid. The same SQL applies directly to any GA4 BigQuery export.<br><br>
+    {"Source: Google's public obfuscated GA4 e-commerce sample dataset. Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention methodology are valid." if IS_PUBLIC_SAMPLE else f"Source: <code>{_html.escape(DATASET)}</code>, {DATE_START}–{DATE_END}."}
+    The same SQL applies directly to any GA4 BigQuery export.<br><br>
     Python {sys.version.split()[0]} · Plotly {__import__("plotly").__version__}
   </div>
 

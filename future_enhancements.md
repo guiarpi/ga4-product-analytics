@@ -17,7 +17,7 @@ e-commerce sample (Nov 2020 – Jan 2021).
 | E1 | Traffic source × funnel cross-tab | ✅ done | 4–6 | High | Low | — |
 | E2 | Product category funnel breakdown | ✅ done | 5–7 | High | Low | — |
 | E3 | Return-visitor vs new-visitor funnel | | 4–5 | Medium | Low | — |
-| E4 | Parameterised date range and config | | 2–3 | Medium | Low | — |
+| E4 | Parameterised date range and config | ✅ done | 2–3 | Medium | Low | — |
 | E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
 | E6 | Statistical significance on device split | | 3–4 | Medium | Low | — |
 | E7 | Power BI dashboard build | | 8–12 | Medium | High | E4 |
@@ -194,6 +194,8 @@ and E8 (CI pipeline), both of which need a clean configuration entry point.
 | Add `config.py` to README "How to run" section | Replace the current "update PROJECT_ID manually" instruction with a single config step | 0.5 h |
 
 **Effort:** 2–3 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** None
+
+**Status:** Implemented 2026-11-19 — `config.py` reads `GA4_PROJECT_ID` (falling back to `GOOGLE_CLOUD_PROJECT`, then the gcloud default), `GA4_DATASET`, `GA4_DATE_START` and `GA4_DATE_END` from the environment and validates them before any query runs; the personal project ID is no longer in the repo. Dataset-specific narrative in the dashboard ("About this dataset", some recommendation text) is still written for the public sample — the script prints a warning when run on other data.
 
 **Expected outcome:** A first-time user sets four values in `config.py` once and
 runs without editing any other file. The project becomes directly reusable against
