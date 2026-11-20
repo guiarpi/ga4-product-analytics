@@ -10,11 +10,13 @@ The page's HTML, CSS and narrative text live in templates/; this script only
 supplies values. Numbers in prose are computed here, never written by hand.
 
 Usage:
-    python generate_dashboard.py
+    python generate_dashboard.py              # run the queries, write the page
+    python generate_dashboard.py --dry-run    # estimate bytes scanned, run nothing
 
 Project, dataset and date window come from config.py and can be overridden
 with GA4_PROJECT_ID, GA4_DATASET, GA4_DATE_START and GA4_DATE_END — see the
-README. Defaults run against Google's public GA4 sample.
+README. Defaults run against Google's public GA4 sample. Every query runs under
+a bytes-billed cap (GA4_MAX_BYTES_BILLED, default 5GB per query).
 
 Output: dashboard.html
 """
@@ -22,6 +24,7 @@ Output: dashboard.html
 import warnings
 warnings.filterwarnings("ignore")
 
+import argparse
 import re
 import sys
 from pathlib import Path
@@ -37,8 +40,8 @@ from plotly.offline import get_plotlyjs
 # ── Config ─────────────────────────────────────────────────────────────────────
 # All run settings live in config.py (environment-variable overrides); nothing
 # about the project, dataset or window is hardcoded in this script.
-from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE,
-                    make_client, describe)
+from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE, MAX_BYTES_BILLED,
+                    make_client, describe, run_query, estimate_bytes, format_bytes)
 from stats_utils import wilson_ci, chi_square, format_p
 from metrics import site_average, flag_categories
 from md_render import md_to_html
@@ -50,16 +53,52 @@ WINDOW = (DATASET, DATE_START, DATE_END)   # every query takes these three
 HERE = Path(__file__).resolve().parent     # paths work from any working directory
 OUTPUT = HERE / "dashboard.html"
 
+# Every query the page runs, in run order. q() refuses anything not listed, so
+# the --dry-run estimate always covers exactly what a real run executes.
+DASHBOARD_QUERIES = (
+    queries.session_funnel_sql, queries.unique_users_sql, queries.revenue_sql,
+    queries.session_quality_sql, queries.event_quality_sql, queries.device_funnel_sql,
+    queries.channel_funnel_sql, queries.shoppers_funnel_sql, queries.category_sql,
+    queries.time_to_convert_sql, queries.cohort_sql,
+)
+
+args = argparse.ArgumentParser(description=__doc__.split("\n\n")[0].strip(),
+                               formatter_class=argparse.RawDescriptionHelpFormatter)
+args.add_argument("--dry-run", action="store_true",
+                  help="estimate the bytes each query would scan (free), then exit")
+args = args.parse_args()
+
 client = make_client()
 # Console only (never saved), so the project is shown here and nowhere else.
 print(f"Connected  |  {describe(client, include_project=True)}")
+print(f"Cost cap   |  {format_bytes(MAX_BYTES_BILLED)} billed per query (GA4_MAX_BYTES_BILLED)")
 if not IS_PUBLIC_SAMPLE:
     print("  NOTE: the 'About This Dataset' card and some recommendation text describe "
           "the public sample — review them before sharing this dashboard.")
 
+if args.dry_run:
+    total, over = 0, []
+    print("\nDry run — nothing is executed or billed:")
+    for build in DASHBOARD_QUERIES:
+        n = estimate_bytes(client, build(*WINDOW))
+        total += n
+        flag = "  ← over the cap" if n > MAX_BYTES_BILLED else ""
+        if flag:
+            over.append(build.__name__)
+        print(f"  {build.__name__:<22} {format_bytes(n):>10}{flag}")
+    print(f"  {'total':<22} {format_bytes(total):>10}")
+    if over:
+        print(f"\n{len(over)} quer{'y' if len(over) == 1 else 'ies'} would be refused — "
+              "raise GA4_MAX_BYTES_BILLED or narrow the window.")
+    sys.exit(1 if over else 0)
 
-def q(sql: str) -> pd.DataFrame:
-    return client.query(sql).to_dataframe()
+
+def q(build) -> pd.DataFrame:
+    """Run one of DASHBOARD_QUERIES for the configured window, under the cost cap."""
+    if build not in DASHBOARD_QUERIES:
+        raise ValueError(f"{build.__name__} is not in DASHBOARD_QUERIES — add it there "
+                         "so --dry-run estimates it too")
+    return run_query(client, build(*WINDOW))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # QUERIES
@@ -67,7 +106,7 @@ def q(sql: str) -> pd.DataFrame:
 
 # ── 1. Session funnel ─────────────────────────────────────────────────────────
 print("Querying session funnel...")
-funnel_raw = q(queries.session_funnel_sql(*WINDOW))
+funnel_raw = q(queries.session_funnel_sql)
 
 # "View Products", not "View Item": in this export view_item fires on listing and
 # home pages with ~12 items per event (see the data-quality checks), so the step
@@ -86,12 +125,12 @@ funnel_df["lost"]        = funnel_df["lost"].clip(lower=0).astype(int)
 
 # ── 1b. Unique users ──────────────────────────────────────────────────────────
 print("Querying unique users...")
-unique_users_df = q(queries.unique_users_sql(*WINDOW))
+unique_users_df = q(queries.unique_users_sql)
 unique_users = int(unique_users_df["unique_users"].iloc[0])
 
 # ── 2. Revenue ────────────────────────────────────────────────────────────────
 print("Querying revenue...")
-revenue_df = q(queries.revenue_sql(*WINDOW))
+revenue_df = q(queries.revenue_sql)
 
 # ── 2b. Data quality: sessions with no session-level medium ───────────────────
 # About a quarter of sessions carry no 'medium' on any event. This query tests
@@ -103,7 +142,7 @@ revenue_df = q(queries.revenue_sql(*WINDOW))
 # The same per-session scan also carries ga_session_number, so the new vs
 # returning split (E3) is computed on exactly the same session basis.
 print("Querying session-level splits (data quality, new vs returning)...")
-dq_raw = q(queries.session_quality_sql(*WINDOW))
+dq_raw = q(queries.session_quality_sql)
 
 # ── 2c. Event-quality checks: what view_item and add_to_cart actually record ──
 # view_item and add_to_cart carry an items array. If it holds a whole product
@@ -111,7 +150,7 @@ dq_raw = q(queries.session_quality_sql(*WINDOW))
 # not a product-page view — which changes how "product page" claims can be made.
 # Only items with quantity > 0 on add_to_cart are the item actually carted.
 print("Querying event-quality checks...")
-evq_raw = q(queries.event_quality_sql(*WINDOW)).set_index("event_name")
+evq_raw = q(queries.event_quality_sql).set_index("event_name")
 
 # ── 3. Device breakdown ───────────────────────────────────────────────────────
 # Rendered as a summary table rather than a grouped bar chart: with all three
@@ -119,7 +158,7 @@ evq_raw = q(queries.event_quality_sql(*WINDOW)).set_index("event_name")
 # identical lines and invites the reader to hunt for a difference that isn't
 # there. The table states the finding directly — device is not the lever.
 print("Querying device breakdown...")
-device_raw = q(queries.device_funnel_sql(*WINDOW))
+device_raw = q(queries.device_funnel_sql)
 
 device_tbl = device_raw.copy()
 device_tbl["share"]      = device_tbl["sessions"] / device_tbl["sessions"].sum() * 100
@@ -149,7 +188,7 @@ device_rows = device_tbl.to_dict("records")
 # earliest event in the session that carries one. Both are returned; the
 # session-level value is used unless its coverage is too thin (see fallback).
 print("Querying acquisition channel breakdown...")
-channel_raw = q(queries.channel_funnel_sql(*WINDOW))
+channel_raw = q(queries.channel_funnel_sql)
 
 # Fallback: if most sessions carry no session-level medium, the session view is
 # mostly "(not set)" and says nothing — use first-touch medium and label it.
@@ -231,7 +270,7 @@ channel_rows = [dict(r, cart_from_view=None if pd.isna(r["cart_from_view"]) else
 
 # ── 4. Shoppers funnel (entry at view_item) ───────────────────────────────────
 print("Querying shoppers funnel...")
-shoppers_raw = q(queries.shoppers_funnel_sql(*WINDOW))
+shoppers_raw = q(queries.shoppers_funnel_sql)
 
 # ── 4b. Product category view → cart (E2) ─────────────────────────────────────
 # Question: the second-largest leak is view_item → add_to_cart. Which product
@@ -249,7 +288,7 @@ shoppers_raw = q(queries.shoppers_funnel_sql(*WINDOW))
 # so session_start and begin_checkout have no category to group by.
 MIN_CATEGORY_VIEWS = 500   # categories below this are too noisy to rank
 print("Querying product category view → cart...")
-category_raw = q(queries.category_sql(*WINDOW))
+category_raw = q(queries.category_sql)
 
 _cat_all_views   = int(category_raw["viewing_sessions"].sum())
 category_raw_labels    = int(category_raw["n_source_labels"].sum())
@@ -306,11 +345,11 @@ cat_rate_max = float(category_tbl["atc_pct"].max())
 
 # ── 5. Time-to-convert ────────────────────────────────────────────────────────
 print("Querying time-to-convert...")
-ttc_df = q(queries.time_to_convert_sql(*WINDOW))
+ttc_df = q(queries.time_to_convert_sql)
 
 # ── 6. Cohort retention ───────────────────────────────────────────────────────
 print("Querying cohort retention...")
-cohort_df = q(queries.cohort_sql(*WINDOW))
+cohort_df = q(queries.cohort_sql)
 cohort_pivot = cohort_df.pivot(index="cohort_week", columns="weeks_since_cohort",
                                values="active_users")
 

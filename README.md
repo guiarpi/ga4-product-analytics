@@ -120,6 +120,13 @@ export GA4_DATE_START="20240101"   # YYYYMMDD, inclusive
 export GA4_DATE_END="20240331"
 ```
 
+Every query runs under a cost cap of 5 GB billed per query: BigQuery refuses, without charging, any query that would bill more. On the public sample the largest query scans about 1.6 GB, and a full dashboard run about 11 GB. A larger export may need a higher cap, and you can see what a run would scan before running it:
+
+```bash
+python generate_dashboard.py --dry-run     # free estimate per query; runs nothing
+export GA4_MAX_BYTES_BILLED="20GB"         # raise the per-query cap if needed
+```
+
 Invalid values are rejected before any query runs. On your own data, review the dashboard's "About this dataset" card and recommendation text, which describe the public sample.
 
 ### Run the notebook

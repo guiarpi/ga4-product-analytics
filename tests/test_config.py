@@ -4,7 +4,8 @@ import sys
 
 import pytest
 
-ENV = ("GA4_PROJECT_ID", "GA4_DATASET", "GA4_DATE_START", "GA4_DATE_END")
+ENV = ("GA4_PROJECT_ID", "GA4_DATASET", "GA4_DATE_START", "GA4_DATE_END",
+       "GA4_MAX_BYTES_BILLED")
 
 
 def load_config(monkeypatch, **env):
@@ -69,3 +70,62 @@ def test_describe_leaves_out_the_project_by_default(monkeypatch):
 
     assert "secret-project" not in cfg.describe(Client())
     assert "secret-project" in cfg.describe(Client(), include_project=True)
+
+
+# ── Cost cap ──────────────────────────────────────────────────────────────────
+
+def test_cost_cap_default_and_override(monkeypatch):
+    assert load_config(monkeypatch).MAX_BYTES_BILLED == 5 * 10**9
+    assert load_config(monkeypatch, GA4_MAX_BYTES_BILLED="20GB").MAX_BYTES_BILLED == 20 * 10**9
+
+
+@pytest.mark.parametrize("value, expected", [
+    ("5GB", 5 * 10**9), ("500 MB", 500 * 10**6), ("1.5tb", 15 * 10**11),
+    ("2G", 2 * 10**9), ("123456789", 123456789),
+])
+def test_parse_bytes(monkeypatch, value, expected):
+    assert load_config(monkeypatch).parse_bytes("X", value) == expected
+
+
+@pytest.mark.parametrize("value", ["", "five GB", "5PB", "-1GB", "1MB", "0"])
+def test_bad_cost_cap_is_rejected(monkeypatch, value):
+    with pytest.raises(ValueError, match="GA4_MAX_BYTES_BILLED"):
+        load_config(monkeypatch, GA4_MAX_BYTES_BILLED=value)
+
+
+class _FakeJob:
+    def __init__(self, exc=None):
+        self.exc = exc
+    def to_dataframe(self):
+        if self.exc:
+            raise self.exc
+        return "frame"
+
+
+class _FakeClient:
+    """Records the job config of each query instead of calling BigQuery."""
+    def __init__(self, exc=None):
+        self.exc, self.configs = exc, []
+    def query(self, sql, job_config=None):
+        self.configs.append(job_config)
+        return _FakeJob(self.exc)
+
+
+def test_run_query_always_applies_the_cap(monkeypatch):
+    cfg = load_config(monkeypatch, GA4_MAX_BYTES_BILLED="3GB")
+    client = _FakeClient()
+    assert cfg.run_query(client, "SELECT 1") == "frame"
+    assert client.configs[0].maximum_bytes_billed == 3 * 10**9
+
+
+def test_run_query_explains_a_refused_query(monkeypatch):
+    from google.api_core import exceptions as gexc
+    cfg = load_config(monkeypatch)
+    refused = gexc.BadRequest("Query exceeded limit for bytes billed: 5000000000.",
+                              errors=[{"reason": "bytesBilledLimitExceeded"}])
+    with pytest.raises(RuntimeError, match="Nothing was billed.*GA4_MAX_BYTES_BILLED"):
+        cfg.run_query(_FakeClient(refused), "SELECT 1")
+    other = gexc.BadRequest("Syntax error", errors=[{"reason": "invalidQuery"}])
+    with pytest.raises(gexc.BadRequest):          # other errors pass through unchanged
+        cfg.run_query(_FakeClient(other), "SELECT 1")
+

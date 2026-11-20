@@ -85,3 +85,15 @@ def test_medians_are_exact():
     # show a different median with no change to the data or code.
     for name, sql in all_query_sql().items():
         assert "APPROX_QUANTILES" not in sql, name
+
+
+def test_dashboard_queries_list_matches_what_it_runs():
+    # q() refuses unlisted builders at run time; this catches it before a run.
+    import ast, pathlib
+    src = pathlib.Path(__file__).resolve().parent.parent.joinpath("generate_dashboard.py").read_text()
+    called = set(re.findall(r"\bq\(queries\.(\w+_sql)\)", src))
+    tree = ast.parse(src)
+    listed = next({e.attr for e in node.value.elts} for node in ast.walk(tree)
+                  if isinstance(node, ast.Assign)
+                  and getattr(node.targets[0], "id", None) == "DASHBOARD_QUERIES")
+    assert called == listed
