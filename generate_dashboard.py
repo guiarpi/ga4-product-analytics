@@ -33,6 +33,11 @@ from plotly.offline import get_plotlyjs
 # about the project, dataset or window is hardcoded in this script.
 from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE,
                     make_client, describe)
+from stats_utils import wilson_ci, chi_square, format_p
+
+def fmt_p(p: float) -> str:
+    """format_p, HTML-escaped (\"p < 0.001\" must not reach the page as a raw '<')."""
+    return _html.escape(format_p(p))
 
 HERE = Path(__file__).resolve().parent     # paths work from any working directory
 OUTPUT = HERE / "dashboard.html"
@@ -296,6 +301,12 @@ device_tbl["cart_pct"]   = device_tbl["add_to_cart"] / device_tbl["sessions"] * 
 device_tbl["purch_pct"]  = device_tbl["purchase"]    / device_tbl["sessions"] * 100
 
 device_gap = round(float(device_tbl["purch_pct"].max()) - float(device_tbl["purch_pct"].min()), 2)
+
+# E6 — is the device gap more than sampling noise? Wilson 95% intervals per
+# device and a chi-square test of purchase rate × device.
+device_tbl["ci"] = [wilson_ci(p, n) for p, n in zip(device_tbl["purchase"], device_tbl["sessions"])]
+device_test = chi_square(device_tbl["purchase"], device_tbl["sessions"])
+device_significant = device_test["p"] < 0.05
 top_device = device_tbl.loc[device_tbl["purch_pct"].idxmax(), "device_category"]
 
 device_rows_html = "\n".join(
@@ -304,7 +315,8 @@ device_rows_html = "\n".join(
     f'<td>{r.share:.1f}%</td>'
     f'<td>{r.view_pct:.1f}%</td>'
     f'<td>{r.cart_pct:.1f}%</td>'
-    f'<td class="dev-key">{r.purch_pct:.2f}%</td></tr>'
+    f'<td class="dev-key">{r.purch_pct:.2f}%</td>'
+    f'<td class="ci">{r.ci[0]:.2f}–{r.ci[1]:.2f}%</td></tr>'
     for r in device_tbl.itertuples()
 )
 
@@ -442,6 +454,10 @@ channel_is_driver = channel_view_spread >= 10
 # Within 3pp of the threshold the verdict is reported as borderline rather than
 # settled — a few points of obfuscation noise could move it either way.
 channel_borderline = 7 <= channel_view_spread < 10
+
+# E6 — the spread is tested too, but with this many sessions even a trivial gap
+# is "significant"; the site-vs-traffic verdict rests on practical size (10pp).
+channel_test = chi_square(_ch_rank["view_item"], _ch_rank["sessions"])
 
 # Sessions with no session-level medium are excluded from the spread, but they
 # are a large block and they move the site average, so they are disclosed.
@@ -590,10 +606,24 @@ category_benchmark = (category_tbl["carting_sessions"].sum()
 # Carts at stake: extra carting sessions if a below-benchmark category merely
 # converted at the benchmark. This is the prioritisation key — a mildly weak
 # category with huge traffic outranks a terrible one nobody visits.
-category_tbl["carts_at_stake"] = (
-    (category_benchmark - category_tbl["atc_pct"]).clip(lower=0) / 100
-    * category_tbl["viewing_sessions"]
-).round().astype(int)
+# E6 — a category is flagged as underperforming only when its whole Wilson 95%
+# interval lies below the site average; one whose interval overlaps it cannot be
+# told apart from average and is shown as neutral. (23-odd intervals at 95% each:
+# expect about one false flag by chance, so flags are a shortlist, not a verdict.)
+_cat_ci = [wilson_ci(k, n) for k, n in zip(category_tbl["carting_sessions"], category_tbl["viewing_sessions"])]
+category_tbl["ci_lo"] = [c[0] for c in _cat_ci]
+category_tbl["ci_hi"] = [c[1] for c in _cat_ci]
+category_tbl["status"] = ["below" if hi < category_benchmark else "above" if lo > category_benchmark else "neutral"
+                          for lo, hi in zip(category_tbl["ci_lo"], category_tbl["ci_hi"])]
+category_n_below   = int((category_tbl["status"] == "below").sum())
+category_n_above   = int((category_tbl["status"] == "above").sum())
+category_n_neutral = int((category_tbl["status"] == "neutral").sum())
+
+# Carts at stake only for flagged categories: an unflagged gap may be noise.
+category_tbl["carts_at_stake"] = [
+    int(round((category_benchmark - r) / 100 * n)) if st == "below" else 0
+    for r, n, st in zip(category_tbl["atc_pct"], category_tbl["viewing_sessions"], category_tbl["status"])
+]
 category_tbl = category_tbl.sort_values("atc_pct").reset_index(drop=True)
 
 _cat_priority = category_tbl.sort_values("carts_at_stake", ascending=False)
@@ -608,13 +638,19 @@ def _merged_note(r) -> str:
     return ('<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">'
             f'merged: {_html.escape(r.source_labels)}</div>')
 
+def _status_label(st: str) -> str:
+    return {"below": '<span class="flag-below">below</span>',
+            "above": '<span class="flag-above">above</span>'}.get(st, '<span class="flag-neutral">≈ average</span>')
+
 category_rows_html = "\n".join(
     f'<tr><td class="dev-name">{_html.escape(r.item_category)}{_merged_note(r)}</td>'
     f'<td>{int(r.viewing_sessions):,}</td>'
     f'<td>{int(r.carting_sessions):,}</td>'
     f'<td class="dev-key">{r.atc_pct:.1f}%</td>'
+    f'<td class="ci">{r.ci_lo:.1f}–{r.ci_hi:.1f}%</td>'
+    f'<td>{_status_label(r.status)}</td>'
     f'<td>{int(r.carts_at_stake):,}</td></tr>'
-    for r in category_tbl.sort_values("carts_at_stake", ascending=False).itertuples()
+    for r in category_tbl.sort_values(["carts_at_stake", "atc_pct"], ascending=[False, True]).itertuples()
 )
 
 # ── 5. Time-to-convert ────────────────────────────────────────────────────────
@@ -1026,20 +1062,27 @@ fig_channel.update_layout(
                range=[0, max(float(_ch_plot["view_pct"].max()), view_rate) * 1.2]),
 )
 
-# Category chart (E2) — view → cart rate per category, worst at the top,
-# benchmark as a reference line. Below-benchmark bars are highlighted.
+# Category chart (E2 + E6) — seen → carted rate per category, worst at the top,
+# with Wilson 95% whiskers. Colour follows the significance flag, not the raw
+# gap: orange = interval entirely below the site average, blue = entirely above,
+# grey = cannot be told apart from average.
+_CAT_COLOURS = {"below": "#ea580c", "above": "#4C78A8", "neutral": "#cbd5e1"}
 fig_category = go.Figure(go.Bar(
     y=category_tbl["item_category"].tolist(),
     x=category_tbl["atc_pct"].round(1).tolist(),
     orientation="h",
     text=[f"{v:.1f}%" for v in category_tbl["atc_pct"]],
     texttemplate="%{text}", textposition="outside",
-    marker_color=["#ea580c" if v < category_benchmark else "#4C78A8"
-                  for v in category_tbl["atc_pct"]],
-    customdata=[[f"{int(v):,}", f"{int(k):,}"] for v, k in
-                zip(category_tbl["viewing_sessions"], category_tbl["carts_at_stake"])],
-    hovertemplate="<b>%{y}</b><br>Seen → carted: %{x:.1f}%"
-                  "<br>Viewing sessions: %{customdata[0]}"
+    marker_color=[_CAT_COLOURS[st] for st in category_tbl["status"]],
+    error_x=dict(type="data", symmetric=False,
+                 array=(category_tbl["ci_hi"] - category_tbl["atc_pct"]).round(2).tolist(),
+                 arrayminus=(category_tbl["atc_pct"] - category_tbl["ci_lo"]).round(2).tolist(),
+                 color="#6b7280", thickness=1, width=3),
+    customdata=[[f"{int(v):,}", f"{int(k):,}", f"{lo:.1f}–{hi:.1f}%"] for v, k, lo, hi in
+                zip(category_tbl["viewing_sessions"], category_tbl["carts_at_stake"],
+                    category_tbl["ci_lo"], category_tbl["ci_hi"])],
+    hovertemplate="<b>%{y}</b><br>Seen → carted: %{x:.1f}% (95% CI %{customdata[2]})"
+                  "<br>Sessions that saw it: %{customdata[0]}"
                   "<br>Carts at stake: %{customdata[1]}<extra></extra>",
 ))
 fig_category.add_vline(x=category_benchmark, line_dash="dash", line_color="#6b7280",
@@ -1051,7 +1094,7 @@ fig_category.update_layout(
     margin=dict(l=10, r=40, t=30, b=10),
     yaxis=dict(autorange="reversed"),   # lowest rate at the top
     xaxis=dict(title="% of sessions that saw the category and carted an item from it",
-               range=[0, (float(category_tbl["atc_pct"].max()) if len(category_tbl) else 10) * 1.2]),
+               range=[0, (float(category_tbl["ci_hi"].max()) if len(category_tbl) else 10) * 1.15]),
 )
 
 
@@ -1174,6 +1217,21 @@ if top_rev_channel:
         f" Highest revenue per session: <strong>{top_rev_channel}</strong> "
         f"(${top_rev_rps:,.2f})."
     )
+channel_verdict += (
+    f"<p><strong>Significant, but that is not the question.</strong> A chi-square test across "
+    f"the named channels gives {fmt_p(channel_test['p'])} (χ² = {channel_test['chi2']:,.0f}, "
+    f"{channel_test['dof']} df) — "
+    + ("with this many sessions almost any gap is statistically significant. "
+       if channel_test["p"] < 0.05 else "the channel gaps are within sampling noise. ")
+    + f"Whether the leak is the site or the traffic is a question of <em>practical</em> size "
+      f"(the 10pp threshold), not of significance; the effect size is small "
+      f"(Cramér's V = {channel_test['cramers_v']:.3f}).</p>"
+    if channel_test["cramers_v"] < 0.1 else
+    f"<p><strong>Significance.</strong> Chi-square across named channels: "
+    f"{fmt_p(channel_test['p'])} (Cramér's V = {channel_test['cramers_v']:.3f}). The verdict "
+    f"still rests on the practical 10pp threshold, not on significance.</p>"
+)
+
 channel_basis_note = (
     "Channel = the session's own medium, taken from <code>event_params</code>; "
     "<code>(none)</code> is GA4's label for direct traffic. The 10pp decision threshold "
@@ -1213,20 +1271,26 @@ else:
 if category_top_targets:
     _targets = ", ".join(f"<strong>{c}</strong>" for c in category_top_targets)
     category_verdict = (
+        f"<p>A category is flagged as <strong>underperforming</strong> only when its whole "
+        f"95% confidence interval lies below the {category_benchmark:.1f}% site average "
+        f"(all ranked categories pooled): <strong>{category_n_below}</strong> of "
+        f"{len(category_tbl)} are, {category_n_above} sit clearly above, and "
+        f"{category_n_neutral} cannot be told apart from average (grey). With "
+        f"{len(category_tbl)} intervals at 95%, about {len(category_tbl) * 0.05:.0f} flag(s) could be "
+        f"chance, so treat the list as a shortlist.</p>"
         f"<p>Ranked by <strong>carts at stake</strong> — the extra carting sessions a "
-        f"category would gain if it converted at the {category_benchmark:.1f}% site "
-        f"average (all ranked categories pooled) — the audit should start with "
+        f"flagged category would gain at the site average — the audit should start with "
         f"{_targets}. Together they account for "
         f"<strong>{category_top3_at_stake:,}</strong> of the "
-        f"<strong>{category_total_at_stake:,}</strong> carts at stake across all "
-        f"ranked categories.</p>"
+        f"<strong>{category_total_at_stake:,}</strong> carts at stake across flagged "
+        f"categories.</p>"
         f"<p>Ranking by volume × gap, not by rate alone, stops a niche category "
         f"with a dramatic rate from jumping the queue ahead of a high-traffic "
         f"category with a moderate gap.</p>"
     )
 else:
     category_verdict = (
-        "<p>No ranked category sits meaningfully below the site average — the "
+        "<p>No ranked category's 95% interval lies entirely below the site average — the "
         "seen → carted drop is spread evenly across the catalogue rather than "
         "concentrated in specific categories.</p>"
     )
@@ -1422,6 +1486,10 @@ html = f"""<!DOCTYPE html>
   .dev-table .dev-name {{ text-align: left; font-weight: 600; color: #111827;
                           text-transform: capitalize; }}
   .dev-table .dev-key {{ font-weight: 700; color: #1d4ed8; }}
+  .dev-table .ci {{ color: #6b7280; font-size: 0.78rem; white-space: nowrap; }}
+  .flag-below {{ color: #c2410c; font-weight: 700; }}
+  .flag-above {{ color: #1d4ed8; font-weight: 700; }}
+  .flag-neutral {{ color: #9ca3af; }}
 
   /* Opportunity box */
   .opportunity {{ background: #eff6ff; border: 1px solid #bfdbfe;
@@ -1653,7 +1721,9 @@ html = f"""<!DOCTYPE html>
       <div class="finding-title">spread in purchase rate across all devices</div>
       <div class="finding-body">
         Purchase conversion differs by only <strong>{device_gap:.2f} percentage
-        points</strong> between desktop, mobile and tablet. A mobile-first
+        points</strong> between desktop, mobile and tablet
+        ({"significant but negligible" if device_significant else "not statistically significant"},
+        χ² {fmt_p(device_test["p"])}). A mobile-first
         redesign — the intuitive response to a {overall_cvr:.2f}% conversion rate — would not
         have moved the number. Effort belongs in discovery, carts and lifecycle,
         not device-specific work.
@@ -1738,7 +1808,7 @@ html = f"""<!DOCTYPE html>
           <thead>
             <tr>
               <th>Device</th><th>Sessions</th><th>Share</th>
-              <th>Saw Product</th><th>Add to Cart</th><th>Purchase</th>
+              <th>Saw Product</th><th>Add to Cart</th><th>Purchase</th><th>95% CI</th>
             </tr>
           </thead>
           <tbody>
@@ -1750,8 +1820,12 @@ html = f"""<!DOCTYPE html>
         <h4>Conclusion</h4>
         <p>Session-to-purchase rates sit within
         <strong>{device_gap:.2f} percentage points</strong> across desktop,
-        mobile and tablet. The funnel leaks at the same rate regardless of how
-        users reach the site.</p>
+        mobile and tablet{"" if device_significant else ", and their 95% intervals overlap"}.
+        A chi-square test of purchase × device gives
+        <strong>{fmt_p(device_test["p"])}</strong> (χ² = {device_test["chi2"]:.1f},
+        {device_test["dof"]} df): {"statistically significant, but the effect is negligible "
+        f"(Cramér's V = {device_test['cramers_v']:.3f})" if device_significant else
+        "no evidence that device changes the purchase rate"}.</p>
         <p><strong>This is reported precisely because it is a null result.</strong>
         The intuitive next step after seeing a {overall_cvr:.2f}% conversion rate is a
         mobile-first redesign. The data says that work would not have moved the
@@ -1819,7 +1893,7 @@ html = f"""<!DOCTYPE html>
       <thead>
         <tr>
           <th>Category</th><th>Sessions that saw it</th><th>Carting sessions</th>
-          <th>Seen → Carted</th><th>Carts at stake</th>
+          <th>Seen → Carted</th><th>95% CI</th><th>vs site average</th><th>Carts at stake</th>
         </tr>
       </thead>
       <tbody>

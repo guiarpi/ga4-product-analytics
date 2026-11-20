@@ -19,7 +19,7 @@ e-commerce sample (Nov 2020 – Jan 2021).
 | E3 | Return-visitor vs new-visitor funnel | | 4–5 | Medium | Low | — |
 | E4 | Parameterised date range and config | ✅ done | 2–3 | Medium | Low | — |
 | E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
-| E6 | Statistical significance on device split | | 3–4 | Medium | Low | — |
+| E6 | Statistical significance (device, channel, category) | ✅ done | 3–4 | Medium | Low | — |
 | E7 | Power BI dashboard build | | 8–12 | Medium | High | E4 |
 | E8 | GitHub Actions CI pipeline | | 4–6 | Low | High | E4, E5 |
 
@@ -219,7 +219,7 @@ Update steps are in DASHBOARD_GUIDE.md section 5.
 
 ---
 
-### E6 · Statistical significance on device split
+### E6 · Statistical significance (device, channel, category)
 
 **Goal:** Add Wilson confidence intervals (or a chi-square test) to the device
 conversion rates so the claim "device type explains very little of the conversion
@@ -248,6 +248,8 @@ will ask.
 includes a one-line significance conclusion ("chi-square p=0.61 — device type
 does not significantly predict conversion, confirming the visual result"). This
 closes the device question formally.
+
+**Status:** Implemented 2026-11-19, widened beyond devices — shared helpers in `stats_utils.py` (Wilson interval, chi-square with Cramér's V; `scipy` added to requirements, no `statsmodels` needed), notebook Sections 5f and 7d, dashboard device table, channel and category sections, LLM context in 10c. First run: device × purchase χ² p = 0.259 (not significant; intervals overlap). Channel × saw-a-product is significant (p < 0.001) but small (Cramér's V = 0.069) — the page states that the site-vs-traffic verdict rests on practical size (the 10pp threshold), not significance. Categories are flagged as underperforming only when their whole 95% interval lies below the site average (12 of 23 below, 8 above, 3 indistinguishable), which replaces an arbitrary neutral band; carts at stake are counted for flagged categories only. The device result is shown as interval columns in the existing table rather than chart error bars, because the device breakdown is deliberately a table.
 
 ---
 
