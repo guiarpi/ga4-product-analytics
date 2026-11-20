@@ -764,7 +764,7 @@ chart_html = {
 # AI BRIEF
 # ══════════════════════════════════════════════════════════════════════════════
 # The notebook stamps the brief with the version of the LLM context it was
-# written from (§10f header: "Context vN"). A brief from an older context cannot
+# written from (notebook §9.6 header: "Context vN"). A brief from an older context cannot
 # know the newer verdicts and may contradict the page, so it is flagged.
 #   v3 = computed verdicts, confounders, data-quality, new vs returning, significance
 #   v4 = listing-page levels, price bands, landing pages, retention trend, page recommendations
@@ -789,7 +789,7 @@ if brief_path.exists():
     brief_html = md_to_html("\n".join(_lines[_hr + 1:]))
     print("AI product brief included.")
 else:
-    print("No product_brief_ga4_funnel.md — run Section 10 of the notebook first.")
+    print("No product_brief_ga4_funnel.md — run Section 9 of the notebook first.")
 
 
 # ══════════════════════════════════════════════════════════════════════════════

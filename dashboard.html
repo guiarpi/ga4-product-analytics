@@ -4178,7 +4178,7 @@ return Plotly;
   </div>
 
 <div class="card dq-card dq-callout">
-    <h4 class="dq-h">Read before the numbers</h4>
+    <h4 class="dq-h">2 · Data quality — read before the numbers</h4>
     <ul>
       <li><strong>26% of sessions carry no channel tag.</strong> They are short
       sessions, not bots, and stay in every rate; they hold 31% of the
@@ -4195,7 +4195,7 @@ return Plotly;
 
 
   <!-- ── 2 · Where does the funnel leak? ────────────────────────────────── -->
-  <p class="section-label" id="leak">Where does the funnel leak?</p>
+  <p class="section-label" id="leak">3 · Where does the funnel leak?</p>
   <div class="card">
     <div class="chart-insight">
       <div>
@@ -4250,7 +4250,7 @@ return Plotly;
   </div>
 
   <!-- ── 3 · Is it the traffic? ─────────────────────────────────────────── -->
-  <p class="section-label" id="traffic">Is it the traffic? Acquisition channels</p>
+  <p class="section-label" id="traffic">4 · Is it the traffic? Acquisition channels</p>
   <div class="card">
     <div class="chart-insight">
       <div>
@@ -4302,7 +4302,7 @@ return Plotly;
   </div>
 
   <!-- ── 4 · Is it the device? ──────────────────────────────────────────── -->
-  <p class="section-label" id="device">Is it the device?</p>
+  <p class="section-label" id="device">5 · Is it the device?</p>
   <div class="card">
     <p class="lead"><strong>No.</strong> Session-to-purchase rates differ by
     <strong>0.05pp</strong> across desktop, mobile and tablet
@@ -4326,7 +4326,7 @@ return Plotly;
   </div>
 
   <!-- ── 5 · Where in the catalogue? ────────────────────────────────────── -->
-  <p class="section-label" id="catalogue">Where in the catalogue? Listing pages and price</p>
+  <p class="section-label" id="catalogue">6 · Where in the catalogue? Listing pages and price</p>
   <div class="card">
     <p class="lead">Each row is a <strong>listing page</strong> a product was shown in, not a fixed product
     category: 414 of 420 products appear under more than one
@@ -4419,7 +4419,7 @@ return Plotly;
   </div>
 
   <!-- ── 6 · Do they come back? ─────────────────────────────────────────── -->
-  <p class="section-label" id="retention">Do they come back? Weekly cohort retention</p>
+  <p class="section-label" id="retention">7 · Do they come back? Weekly cohort retention</p>
   <div class="card">
     <div class="chart-insight flip">
       <div class="insight-panel">
@@ -4458,7 +4458,7 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
   </div>
 
 
-  <p class="section-label">New vs Returning Sessions</p>
+  <p class="section-label">7 · Do they come back? New vs returning sessions</p>
   <div class="card">
     <div class="two-col" style="gap:28px">
       <div>
@@ -4498,7 +4498,7 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
 
 
   <!-- ── 7 · What should we do? ─────────────────────────────────────────── -->
-  <p class="section-label" id="actions">What should we do?</p>
+  <p class="section-label" id="actions">8 · What should we do?</p>
 <div class="rec-grid">
 
     <div class="rec">
@@ -4643,7 +4643,7 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
   <p class="section-label" id="appendix">Appendix</p>
 
   <details class="card appendix" id="appendix-data-quality">
-    <summary>Data quality <span class="appendix-sub">untagged sessions, what view_item records, which revenue is counted</span></summary>
+    <summary>2 · Data quality, full checks <span class="appendix-sub">untagged sessions, what view_item records, which revenue is counted</span></summary>
     <div class="appendix-body">
 <div class="dq-body">
     <div class="two-col" style="gap:28px">
@@ -4749,7 +4749,7 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
   </details>
 
   <details class="card appendix">
-    <summary>About this dataset <span class="appendix-sub">the store, the export, the events used</span></summary>
+    <summary>1 · About this dataset <span class="appendix-sub">the store, the export, the events used</span></summary>
     <div class="appendix-body">
       <div class="about-grid">
         <div>
@@ -4801,123 +4801,123 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
       templates. Every figure in the prose comes from the run, so the page stays true when the window or
       dataset changes: set <code>GA4_DATASET</code>, <code>GA4_DATE_START</code> and <code>GA4_DATE_END</code>
       and re-run.</p>
-      <p>The product brief below is written separately, in Section 10 of the notebook: the computed results
+      <p>The product brief below is written separately, in Section 9 of the notebook: the computed results
       and verdicts are sent as JSON to an LLM (Claude, or Gemini as a free alternative), which never sees raw
       events or SQL. The brief is reviewed before it is embedded, and the page flags it as out of date when
       the analysis has moved on since it was written.</p>
       <p class="arch">GA4 BigQuery export → SQL (<code>queries.py</code>) → pandas metrics → Plotly charts + Jinja2 templates → <code>dashboard.html</code><br>
-      pandas metrics → notebook §10 → LLM → reviewed brief → appendix below</p>
+      pandas metrics → notebook §9 → LLM → reviewed brief → appendix below</p>
       <p class="table-note">Python 3.13.13 · Plotly 6.7.0 · generated 2026-11-20</p>
     </div>
   </details>
 
 
   <details class="card appendix">
-    <summary><span class="ai-badge">Gemini (gemini-3.5-flash)</span> AI-generated product brief
+    <summary><span class="ai-badge">Gemini (gemini-3.5-flash)</span> 9 · AI-generated product brief
       <span class="appendix-sub">written by an LLM from the computed results above;
       where they differ, the computed sections are correct</span></summary>
     <div class="appendix-body">
       
       <div class="brief-body"><h3>Executive Summary</h3>
-<p>The primary funnel drop-off occurs at initial product discovery, where only 21.2% of sessions saw products (in B2B SaaS terms, moving from initial login to feature discovery). The acquisition channel spread in product views is 8.7 percentage points, which leans toward a site navigation issue rather than traffic quality, though it remains borderline against the 10.0 percentage point analyst threshold. Note that these findings are derived from an obfuscated public sample and require validation on production data.</p>
+<p>The largest loss in the conversion funnel occurs at product discovery: only 21.2% of sessions saw products (a drop-off of 279,596 sessions from 354,857 initial sessions). Capturing lost intent on underperforming landing pages, improving listing pages, and recovering abandoned carts represent the primary revenue opportunities. Note that this analysis is based on an obfuscated public sample and findings need validation on real data (in B2B SaaS, this funnel maps from login to feature discovery and core activation).</p>
 <h3>Key Findings</h3>
 <ol>
-<li><strong>Initial discovery is the primary leak in the funnel.</strong>
- Out of 354,857 total sessions, only 75,261 sessions saw products, representing a drop-off of 279,596 sessions (78.8%).
+<li><strong>Product discovery represents the primary leak in the funnel</strong>
+ Only 21.2% of sessions (75,261 of 354,857) saw products—representing an absolute drop-off of 279,596 sessions at step two (in B2B SaaS, moving from session start/login to feature discovery).
 <ul>
-<li><strong>So what:</strong> Product teams must prioritize getting users from session start to viewing product listings over downstream checkout tweaks.
+<li><strong>So what:</strong> Product and growth teams should focus initial efforts on navigation and entry-page visibility to get users to product lists faster.
 </li>
 </ul>
 </li>
-<li><strong>Four landing pages drive severe product discovery losses.</strong>
- Four landing pages (<code>/Google+Redesign/Apparel</code>, <code>/Google+Redesign/Apparel/Google+Dino+Game+Tee</code>, <code>/store.html</code>, and <code>/Google+Redesign/Lifestyle/Drinkware</code>) account for 76,426 landings but yield saw-a-product rates between 8.9% and 11.8%, well below the 21.2% site average.
+<li><strong>Four landing pages account for significant discovery drop-off</strong>
+ Four top landing pages receive 76,426 aggregate landings but convert users to seeing products at rates far below the 21.2% site average (e.g., <code>/Google+Redesign/Apparel</code> receives 39,092 landings but has an 8.9% saw-product rate).
 <ul>
-<li><strong>So what:</strong> Fixing these four underperforming landing pages can recover an estimated 316 orders and $11,246–$22,493 ($11.2k–$22.5k) in revenue.
+<li><strong>So what:</strong> Fixing page layout, inventory availability, or tracking gaps on these four entry routes could unlock up to 8,731 additional product-viewing sessions.
 </li>
 </ul>
 </li>
-<li><strong>Cart abandonment represents the largest post-intent loss.</strong>
- 65.0% of carting sessions (9,665 out of 14,870 sessions) never begin checkout, whereas 52.3% of sessions that begin checkout complete a purchase.
+<li><strong>Cart abandonment is the largest intent-stage drop-off</strong>
+ 65.0% of carting sessions (9,665 of 14,870) end without beginning checkout.
 <ul>
-<li><strong>So what:</strong> Implementing targeted cart recovery and re-engagement campaigns addresses the largest leak after user purchase intent is expressed.
+<li><strong>So what:</strong> Automated cart recovery and re-engagement triggers targeting identifiable users are necessary to capture high-intent users before they churn.
 </li>
 </ul>
 </li>
-<li><strong>Listing page conversion varies significantly across product categories.</strong>
- 6 of 12 ranked product-type listing pages sit below the 22.1% product-type average with 95% confidence. The top three by impact—Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%)—account for 1,054 of the 1,635 total carts at stake.
+<li><strong>Category listing performance is concentrated in three main subcategories</strong>
+ 6 of 12 ranked product-type listing pages sit below the 22.1% product-type average with 95% confidence. The top three underperforming listings—Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%)—account for 1,054 of the 1,635 total carts at stake across all flagged pages.
 <ul>
-<li><strong>So what:</strong> Auditing these three specific listing layouts can generate an estimated 193 orders and $6,869–$13,738 ($6.9k–$13.7k) in revenue.
+<li><strong>So what:</strong> Merchandising layout audits should focus strictly on Bags, Women's, and Men's / Unisex, as neutral categories cannot be distinguished from the average.
 </li>
 </ul>
 </li>
 </ol>
 <h3>Hypotheses</h3>
 <ol>
-<li><strong>[MEDIUM confidence — Site navigation leaks products before users reach listings]</strong>
+<li><strong>[MEDIUM] confidence — The discovery leak is primarily a site navigation problem rather than a channel traffic quality issue</strong>
 <ul>
-<li><strong>Evidence:</strong> The spread in saw-a-product rates across acquisition channels is 8.7 percentage points (from 21.6% in cpc to 30.3% in referral), falling below the 10.0 percentage point threshold that signals a traffic-quality issue.
+<li><strong>Evidence:</strong> The spread in saw-product rates across session mediums is 8.7 percentage points, which sits below the 10.0 percentage point analyst-set threshold for attributing leaks to traffic quality.
 </li>
-<li><strong>Confounder:</strong> Very short, untagged sessions (<code>(not set)</code>), which comprise 26.2% of overall sessions and account for 31.0% of the discovery loss, carry no channel medium, leaving their traffic intent unknown.
+<li><strong>Confounder:</strong> Very short, untagged sessions (<code>(not set)</code>) represent 26.2% of total sessions and 31.0% of the discovery loss, leaving their intent unknown.
 </li>
 </ul>
 </li>
-<li><strong>[MEDIUM confidence — Underperforming landing pages suffer from technical or display issues]</strong>
+<li><strong>[MEDIUM] confidence — Low product-view rates on top landing pages stem from technical layout, inventory, or tracking issues</strong>
 <ul>
-<li><strong>Evidence:</strong> Four landing pages handling 76,426 landings show products to fewer than 11.9% of sessions, compared to the 21.2% site average.
+<li><strong>Evidence:</strong> Landings on pages like <code>/Google+Redesign/Apparel</code> (39,092 landings) convert to seeing products at 8.9%, compared to the site average of 21.2%.
 </li>
-<li><strong>Confounder:</strong> A tracking gap where the list-level <code>view_item</code> event fails to trigger on those specific pages would produce the exact same low rate in measurement without reflecting user behavior.
+<li><strong>Confounder:</strong> A tracking gap where <code>view_item</code> fails to fire would artificially depress the measured saw-product rate without reflecting actual user browsing behavior.
 </li>
 </ul>
 </li>
-<li><strong>[MEDIUM confidence — Category listing design suppresses add-to-cart rates in major categories]</strong>
+<li><strong>[LOW] confidence — Listing design on Bags, Women's, and Men's / Unisex listing pages suppresses cart additions</strong>
 <ul>
-<li><strong>Evidence:</strong> Listing pages for Bags, Women's, and Men's / Unisex convert listing views to carts at 13.6%, 15.1%, and 19.7%, respectively—all below the 22.1% product-type average with 95% confidence.
+<li><strong>Evidence:</strong> Listing-to-cart conversion rates for Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%) are below the 22.1% product-type average with 95% confidence.
 </li>
-<li><strong>Confounder:</strong> Price distribution and listing composition—cheaper items convert faster (under $10 items see an 8.9% rate vs. 6.3% for $30–50 items), and broader collection listings expose products to broader, less-targeted session traffic.
+<li><strong>Confounder:</strong> Listing composition (items appearing in broad, mixed lists) and higher median item prices ($37.0 for Men's / Unisex vs $12.0 for Bags) lower cart conversion, independent of list design.
 </li>
 </ul>
 </li>
 </ol>
 <h3>Recommended Actions</h3>
 <ol>
-<li><strong>Fix top underperforming landing pages</strong>
+<li><strong>Fix top landing pages that fail to display products</strong>
 <ul>
-<li><strong>What:</strong> Audit and resolve product visibility issues on <code>/Google+Redesign/Apparel</code>, <code>/Google+Redesign/Apparel/Google+Dino+Game+Tee</code>, <code>/store.html</code>, and <code>/Google+Redesign/Lifestyle/Drinkware</code>.
+<li><strong>What:</strong> Audit and repair page layouts, inventory status, and tag implementations across <code>/Google+Redesign/Apparel</code>, <code>/Google+Redesign/Apparel/Google+Dino+Game+Tee</code>, <code>/store.html</code>, and <code>/Google+Redesign/Lifestyle/Drinkware</code>.
 </li>
-<li><strong>Why:</strong> Reaching the site average saw-a-product rate across these 76,426 landings unlocks significant downstream intent.
+<li><strong>Why:</strong> Reaching site-average product discovery across these 76,426 landings addresses the single largest funnel leak.
 </li>
-<li><strong>Metric:</strong> Target 316 additional orders generating $11,246–$22,493 ($11.2k–$22.5k) in revenue (derived assuming added product-viewing sessions convert at 50–100% of today's saw-to-purchase rate).
+<li><strong>Metric:</strong> Target 316 additional orders generating $11,246–$22,493 in revenue (based on the planning assumption that added product-viewing sessions convert at 50–100% of today's saw-to-purchase rate).
 </li>
 </ul>
 </li>
-<li><strong>Deploy cart recovery and re-engagement campaigns</strong>
+<li><strong>Deploy cart recovery and user re-engagement flows</strong>
 <ul>
-<li><strong>What:</strong> Set up automated abandoned cart emails/notifications and re-engage churned cohorts.
+<li><strong>What:</strong> Implement triggered email/SMS notifications for abandoned carts and retargeting campaigns for inactive users.
 </li>
-<li><strong>Why:</strong> 9,665 carting sessions drop off before checkout, and average Week-1 return sits at 4.2% against an 8.0% planning target (an analyst assumption).
+<li><strong>Why:</strong> Recovers revenue from 9,665 sessions that added items to cart but never reached checkout.
 </li>
-<li><strong>Metric:</strong> Target 505 cart recovery orders generating $35,945 ($35.9k) in revenue (derived from a planning assumption that 10% of abandoned carts reach checkout), plus $2,563–$11,999 ($2.6k–$12.0k) from user re-engagement.
+<li><strong>Metric:</strong> Target 505 cart recovery orders generating $35,945, along with $2,563–$11,999 in re-engagement revenue (based on planning assumptions of a 10.0% cart recovery rate to checkout and bringing Week-1 return rates to the 8.0% planning target).
 </li>
 </ul>
 </li>
-<li><strong>Audit listing presentation for Bags, Women's, and Men's / Unisex</strong>
+<li><strong>Audit and update listing layouts for key category pages</strong>
 <ul>
-<li><strong>What:</strong> Redesign layout, item order, and quick-add actions on these three category listing pages.
+<li><strong>What:</strong> Redesign list displays, filtering, and item sorting for Bags, Women's, and Men's / Unisex listing pages.
 </li>
-<li><strong>Why:</strong> These three pages hold 1,054 of the total 1,635 carts at stake across underperforming categories.
+<li><strong>Why:</strong> These three categories represent 1,054 of the total 1,635 carts at stake across underperforming listing pages.
 </li>
-<li><strong>Metric:</strong> Target 193 orders generating $6,869–$13,738 ($6.9k–$13.7k) in revenue (derived assuming added carts convert at current cart-to-purchase rates).
+<li><strong>Metric:</strong> Target 193 orders generating $6,869–$13,738 in revenue (based on the planning assumption that added carts convert at current cart-to-purchase rates).
 </li>
 </ul>
 </li>
 </ol>
 <h3>What to Measure Next</h3>
 <ol>
-<li><strong>Landing Page Tagging &amp; Render Audit:</strong> Validate whether the low saw-a-product rate on the four underperforming landing pages is caused by missing <code>view_item</code> event triggers, slow page rendering, or out-of-stock items.
+<li><strong>Landing Page Tag and Render Audit:</strong> Conduct a technical check to confirm whether <code>view_item</code> event tracking fires correctly on the four identified landing pages or if script errors and out-of-stock items prevent product rendering.
 </li>
-<li><strong>Category Listing UX &amp; Position Analysis:</strong> Evaluate item position, inventory availability, and price distribution within the Bags, Women's, and Men's / Unisex listing pages to isolate why their seen-to-carted rates lag the product-type average.
+<li><strong>Category Listing Composition Analysis:</strong> Evaluate whether items in Bags, Women's, and Men's / Unisex primarily appear within broad parent/collection lists or direct category views to isolate the effect of list context from pricing.
 </li>
-<li><strong>Cart Abandonment Drop-off Points:</strong> Analyze friction points between <code>Add to Cart</code> and <code>Begin Checkout</code> (such as unexpected shipping fees or login gates) to pinpoint why 65.0% of carting sessions abandon.
+<li><strong>Cross-Session User Identification Validation:</strong> Measure production user login rates and persistent cookie tracking to validate what portion of abandoned carts belong to identifiable users eligible for automated recovery.
 </li>
 </ol></div>
     </div>

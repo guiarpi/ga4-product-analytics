@@ -6,7 +6,9 @@
 
     Order follows the questions a stakeholder asks, answer first: the headline
     and KPIs, where the funnel leaks, whether it is the traffic, the device or
-    the catalogue, whether visitors come back, what to do, then an appendix. -#}
+    the catalogue, whether visitors come back, what to do, then an appendix.
+    Section numbers are shared with the notebook and the README (1 setup and
+    data, 2 data quality, 3–8 the questions, 9 the AI brief). -#}
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -71,7 +73,7 @@
 {% include "partials/dq_callout.html.j2" %}
 
   <!-- ── 2 · Where does the funnel leak? ────────────────────────────────── -->
-  <p class="section-label" id="leak">Where does the funnel leak?</p>
+  <p class="section-label" id="leak">3 · Where does the funnel leak?</p>
   <div class="card">
     <div class="chart-insight">
       <div>
@@ -127,7 +129,7 @@
   </div>
 
   <!-- ── 3 · Is it the traffic? ─────────────────────────────────────────── -->
-  <p class="section-label" id="traffic">Is it the traffic? Acquisition channels</p>
+  <p class="section-label" id="traffic">4 · Is it the traffic? Acquisition channels</p>
   <div class="card">
     <div class="chart-insight">
       <div>
@@ -161,7 +163,7 @@
   </div>
 
   <!-- ── 4 · Is it the device? ──────────────────────────────────────────── -->
-  <p class="section-label" id="device">Is it the device?</p>
+  <p class="section-label" id="device">5 · Is it the device?</p>
   <div class="card">
     <p class="lead"><strong>No.</strong> Session-to-purchase rates differ by
     <strong>{{ device_gap|fmt('.2f') }}pp</strong> across desktop, mobile and tablet
@@ -181,7 +183,7 @@
   </div>
 
   <!-- ── 5 · Where in the catalogue? ────────────────────────────────────── -->
-  <p class="section-label" id="catalogue">Where in the catalogue? Listing pages and price</p>
+  <p class="section-label" id="catalogue">6 · Where in the catalogue? Listing pages and price</p>
   <div class="card">
     <p class="lead">Each row is a <strong>listing page</strong> a product was shown in, not a fixed product
     category: {{ overlap_multi|fmt(',') }} of {{ overlap_items|fmt(',') }} products appear under more than one{% if overlap_example %}
@@ -246,7 +248,7 @@
   </div>
 
   <!-- ── 6 · Do they come back? ─────────────────────────────────────────── -->
-  <p class="section-label" id="retention">Do they come back? Weekly cohort retention</p>
+  <p class="section-label" id="retention">7 · Do they come back? Weekly cohort retention</p>
   <div class="card">
     <div class="chart-insight flip">
       <div class="insight-panel">
@@ -272,14 +274,14 @@
 {% include "partials/new_vs_returning.html.j2" %}
 
   <!-- ── 7 · What should we do? ─────────────────────────────────────────── -->
-  <p class="section-label" id="actions">What should we do?</p>
+  <p class="section-label" id="actions">8 · What should we do?</p>
 {% include "partials/recommendations.html.j2" %}
 
   <!-- ── 8 · Appendix ───────────────────────────────────────────────────── -->
   <p class="section-label" id="appendix">Appendix</p>
 
   <details class="card appendix" id="appendix-data-quality">
-    <summary>Data quality <span class="appendix-sub">untagged sessions, what view_item records, which revenue is counted</span></summary>
+    <summary>2 · Data quality, full checks <span class="appendix-sub">untagged sessions, what view_item records, which revenue is counted</span></summary>
     <div class="appendix-body">
 {% include "partials/data_quality.html.j2" %}
     </div>
@@ -307,7 +309,7 @@
   </details>
 
   <details class="card appendix">
-    <summary>About this dataset <span class="appendix-sub">the store, the export, the events used</span></summary>
+    <summary>1 · About this dataset <span class="appendix-sub">the store, the export, the events used</span></summary>
     <div class="appendix-body">
       <div class="about-grid">
         <div>
@@ -359,12 +361,12 @@
       templates. Every figure in the prose comes from the run, so the page stays true when the window or
       dataset changes: set <code>GA4_DATASET</code>, <code>GA4_DATE_START</code> and <code>GA4_DATE_END</code>
       and re-run.</p>
-      <p>The product brief below is written separately, in Section 10 of the notebook: the computed results
+      <p>The product brief below is written separately, in Section 9 of the notebook: the computed results
       and verdicts are sent as JSON to an LLM (Claude, or Gemini as a free alternative), which never sees raw
       events or SQL. The brief is reviewed before it is embedded, and the page flags it as out of date when
       the analysis has moved on since it was written.</p>
       <p class="arch">GA4 BigQuery export → SQL (<code>queries.py</code>) → pandas metrics → Plotly charts + Jinja2 templates → <code>dashboard.html</code><br>
-      pandas metrics → notebook §10 → LLM → reviewed brief → appendix below</p>
+      pandas metrics → notebook §9 → LLM → reviewed brief → appendix below</p>
       <p class="table-note">Python {{ python_version }} · Plotly {{ plotly_version }} · generated {{ generated_date }}</p>
     </div>
   </details>
