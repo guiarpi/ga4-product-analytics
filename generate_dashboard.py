@@ -36,11 +36,13 @@ from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE,
 from stats_utils import wilson_ci, chi_square, format_p
 from metrics import site_average, flag_categories
 from md_render import md_to_html
+import queries
 
 def fmt_p(p: float) -> str:
     """format_p, HTML-escaped (\"p < 0.001\" must not reach the page as a raw '<')."""
     return _html.escape(format_p(p))
 
+WINDOW = (DATASET, DATE_START, DATE_END)   # every query takes these three
 HERE = Path(__file__).resolve().parent     # paths work from any working directory
 OUTPUT = HERE / "dashboard.html"
 
@@ -65,45 +67,13 @@ def chart_div(fig, div_id: str) -> str:
 
 # ── 1. Session funnel ─────────────────────────────────────────────────────────
 print("Querying session funnel...")
-funnel_raw = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, event_name, MIN(event_timestamp) AS first_ts
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
-  FROM se GROUP BY user_pseudo_id, session_id
-)
-SELECT
-  COUNT(*) AS step1_sessions,
-  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS step2_view_item,
-  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS step3_add_to_cart,
-  COUNTIF(ts_k IS NOT NULL AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS step4_begin_checkout,
-  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS step5_purchase
-FROM pv WHERE ts_s IS NOT NULL
-""")
+funnel_raw = q(queries.session_funnel_sql(*WINDOW))
 
 # "View Products", not "View Item": in this export view_item fires on listing and
 # home pages with ~12 items per event (see the data-quality checks), so the step
 # means "saw products", not "opened a product page".
 step_labels = ["Session Start","View Products","Add to Cart","Begin Checkout","Purchase"]
-step_cols   = ["step1_sessions","step2_view_item","step3_add_to_cart",
-               "step4_begin_checkout","step5_purchase"]
+step_cols   = ["sessions","view_item","add_to_cart","begin_checkout","purchase"]   # queries.STEP_COLUMNS
 funnel_df = pd.DataFrame({
     "step":     step_labels,
     "sessions": [int(funnel_raw[c].iloc[0]) for c in step_cols],
@@ -116,66 +86,12 @@ funnel_df["lost"]        = funnel_df["lost"].clip(lower=0).astype(int)
 
 # ── 1b. Unique users ──────────────────────────────────────────────────────────
 print("Querying unique users...")
-unique_users_df = q(f"""
-SELECT COUNT(DISTINCT user_pseudo_id) AS unique_users
-FROM `{DATASET}.events_*`
-WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-  AND event_name = 'session_start'
-""")
+unique_users_df = q(queries.unique_users_sql(*WINDOW))
 unique_users = int(unique_users_df["unique_users"].iloc[0])
 
 # ── 2. Revenue ────────────────────────────────────────────────────────────────
 print("Querying revenue...")
-revenue_df = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp,
-    ecommerce.purchase_revenue AS purchase_revenue
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, event_name,
-    MIN(event_timestamp) AS first_ts, SUM(purchase_revenue) AS rev
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p,
-    MAX(CASE WHEN event_name='purchase'       THEN rev END) AS revenue
-  FROM se GROUP BY user_pseudo_id, session_id
-),
-conv AS (SELECT * FROM pv
-  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k),
--- Every session with a purchase, sequential or not: the funnel's revenue is a
--- subset of this, and the gap is disclosed rather than hidden.
-allp AS (
-  SELECT COUNT(*) AS all_purchasing_sessions,
-    ROUND(SUM(revenue),2) AS all_revenue,
-    COUNTIF(ts_c IS NULL) AS purchases_without_cart
-  FROM pv WHERE ts_p IS NOT NULL
-)
-SELECT c.*, allp.*
-FROM (
-  SELECT
-    COUNT(*) AS purchasing_sessions,
-    -- Some purchase events carry no purchase_revenue. AOV is averaged over the
-    -- orders that do, so both counts are returned to keep the figures reconcilable.
-    COUNTIF(revenue > 0) AS orders_with_revenue,
-    ROUND(SUM(revenue),2) AS total_revenue,
-    ROUND(AVG(IF(revenue > 0, revenue, NULL)),2) AS avg_order_value,
-    ROUND(APPROX_QUANTILES(IF(revenue > 0, revenue, NULL),100)[OFFSET(50)],2) AS median_order_value
-  FROM conv
-) c CROSS JOIN allp
-""")
+revenue_df = q(queries.revenue_sql(*WINDOW))
 
 # ── 2b. Data quality: sessions with no session-level medium ───────────────────
 # About a quarter of sessions carry no 'medium' on any event. This query tests
@@ -187,67 +103,7 @@ FROM (
 # The same per-session scan also carries ga_session_number, so the new vs
 # returning split (E3) is computed on exactly the same session basis.
 print("Querying session-level splits (data quality, new vs returning)...")
-dq_raw = q(f"""
-WITH ev AS (
-  SELECT user_pseudo_id, event_name, event_timestamp, device.category AS dev,
-    ecommerce.purchase_revenue AS purchase_revenue,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    (SELECT ep.value.string_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'medium' LIMIT 1) AS medium,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'engagement_time_msec' LIMIT 1) AS eng_msec,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_number' LIMIT 1) AS session_number
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-),
-s AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
-    COUNT(*) AS n_events, COUNTIF(medium IS NOT NULL) AS n_medium,
-    COUNTIF(event_name = 'page_view') AS n_page_view,
-    SUM(IFNULL(eng_msec, 0)) / 1000 AS engaged_s,
-    -- GA4 counts sessions per user from the first visit ever, not from the
-    -- start of this window, so 1 = genuinely new (for that cookie).
-    MAX(session_number) AS session_number,
-    MIN(IF(event_name='session_start',  event_timestamp, NULL)) AS ts_s,
-    MIN(IF(event_name='view_item',      event_timestamp, NULL)) AS ts_v,
-    MIN(IF(event_name='add_to_cart',    event_timestamp, NULL)) AS ts_c,
-    MIN(IF(event_name='begin_checkout', event_timestamp, NULL)) AS ts_k,
-    MIN(IF(event_name='purchase',       event_timestamp, NULL)) AS ts_p,
-    SUM(IF(event_name='purchase', purchase_revenue, NULL))      AS revenue
-  FROM ev WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id
-),
-f AS (
-  SELECT *,
-    n_medium > 0 AS attributed,
-    CASE WHEN session_number = 1 THEN 'new' WHEN session_number > 1 THEN 'returning'
-         ELSE 'unknown' END AS visitor,
-    CASE WHEN n_events <= 3 THEN '1–3' WHEN n_events <= 5 THEN '4–5'
-         WHEN n_events <= 8 THEN '6–8' WHEN n_events <= 15 THEN '9–15'
-         ELSE '16+' END AS size_bucket,
-    IFNULL(ts_v >= ts_s, FALSE) AS s2,
-    IFNULL(ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s3,
-    IFNULL(ts_k >= ts_c AND ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s4,
-    IFNULL(ts_p >= ts_k AND ts_k >= ts_c AND ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s5
-  FROM s WHERE ts_s IS NOT NULL
-)
-SELECT
-  CASE WHEN GROUPING(size_bucket) = 0 THEN 'size'
-       WHEN GROUPING(dev) = 0 THEN 'device'
-       WHEN GROUPING(visitor) = 0 THEN 'visitor' ELSE 'all' END AS cut,
-  size_bucket, dev, attributed, visitor,
-  COUNT(*) AS sessions,
-  COUNTIF(s2) AS view_item, COUNTIF(s3) AS add_to_cart,
-  COUNTIF(s4) AS begin_checkout, COUNTIF(s5) AS purchase,
-  ROUND(SUM(IF(s5, IFNULL(revenue, 0), 0)), 2) AS revenue,
-  COUNTIF(n_page_view > 0) AS with_page_view,
-  APPROX_QUANTILES(engaged_s, 2)[OFFSET(1)] AS median_engaged_s,
-  APPROX_QUANTILES(n_events, 2)[OFFSET(1)] AS median_events
-FROM f
-GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed), (visitor))
-""")
+dq_raw = q(queries.session_quality_sql(*WINDOW))
 
 # ── 2c. Event-quality checks: what view_item and add_to_cart actually record ──
 # view_item and add_to_cart carry an items array. If it holds a whole product
@@ -255,16 +111,7 @@ GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attribute
 # not a product-page view — which changes how "product page" claims can be made.
 # Only items with quantity > 0 on add_to_cart are the item actually carted.
 print("Querying event-quality checks...")
-evq_raw = q(f"""
-SELECT event_name, COUNT(*) AS events,
-  ROUND(AVG(ARRAY_LENGTH(items)), 1) AS avg_items,
-  COUNTIF(ARRAY_LENGTH(items) > 1) AS multi_item_events,
-  COUNTIF((SELECT COUNTIF(IFNULL(it.quantity, 0) > 0) FROM UNNEST(items) AS it) = 1) AS one_carted_item_events
-FROM `{DATASET}.events_*`
-WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-  AND event_name IN ('view_item', 'add_to_cart')
-GROUP BY event_name
-""").set_index("event_name")
+evq_raw = q(queries.event_quality_sql(*WINDOW)).set_index("event_name")
 
 # ── 3. Device breakdown ───────────────────────────────────────────────────────
 # Rendered as a summary table rather than a grouped bar chart: with all three
@@ -272,39 +119,7 @@ GROUP BY event_name
 # identical lines and invites the reader to hunt for a difference that isn't
 # there. The table states the finding directly — device is not the lever.
 print("Querying device breakdown...")
-device_raw = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id, device.category AS dev,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
-    event_name, MIN(event_timestamp) AS first_ts
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
-  FROM se GROUP BY user_pseudo_id, session_id
-)
-SELECT dev AS device_category,
-  COUNT(*) AS sessions,
-  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS view_item,
-  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS add_to_cart,
-  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS purchase
-FROM pv WHERE ts_s IS NOT NULL
-GROUP BY dev ORDER BY sessions DESC
-""")
+device_raw = q(queries.device_funnel_sql(*WINDOW))
 
 device_tbl = device_raw.copy()
 device_tbl["share"]      = device_tbl["sessions"] / device_tbl["sessions"].sum() * 100
@@ -343,64 +158,7 @@ device_rows_html = "\n".join(
 # earliest event in the session that carries one. Both are returned; the
 # session-level value is used unless its coverage is too thin (see fallback).
 print("Querying acquisition channel breakdown...")
-channel_raw = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    traffic_source.medium AS ft_medium,
-    event_name, event_timestamp,
-    ecommerce.purchase_revenue AS purchase_revenue
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-sm AS (
-  -- Session medium: value on the earliest event in the session that has one.
-  -- Scans all event types — medium is not guaranteed on the funnel events.
-  SELECT user_pseudo_id, session_id,
-    ARRAY_AGG(medium ORDER BY event_timestamp LIMIT 1)[OFFSET(0)] AS session_medium
-  FROM (
-    SELECT user_pseudo_id, event_timestamp,
-      (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-       WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-      (SELECT ep.value.string_value FROM UNNEST(event_params) AS ep
-       WHERE ep.key = 'medium' LIMIT 1) AS medium
-    FROM `{DATASET}.events_*`
-    WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-  )
-  WHERE session_id IS NOT NULL AND medium IS NOT NULL
-  GROUP BY user_pseudo_id, session_id
-),
-se AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(ft_medium) AS ft_medium,
-    event_name, MIN(event_timestamp) AS first_ts, SUM(purchase_revenue) AS rev
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id, ANY_VALUE(ft_medium) AS ft_medium,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p,
-    MAX(CASE WHEN event_name='purchase'       THEN rev END)      AS revenue
-  FROM se GROUP BY user_pseudo_id, session_id
-)
-SELECT
-  COALESCE(sm.session_medium, '(not set)') AS session_medium,
-  COALESCE(pv.ft_medium,      '(not set)') AS first_touch_medium,
-  COUNT(*) AS sessions,
-  COUNTIF(ts_v IS NOT NULL AND ts_v>=ts_s) AS view_item,
-  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v AND ts_v>=ts_s) AS add_to_cart,
-  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s) AS purchase,
-  ROUND(SUM(IF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v AND ts_v>=ts_s,
-               IFNULL(revenue, 0), 0)), 2) AS revenue
-FROM pv LEFT JOIN sm USING (user_pseudo_id, session_id)
-WHERE ts_s IS NOT NULL
-GROUP BY session_medium, first_touch_medium
-""")
+channel_raw = q(queries.channel_funnel_sql(*WINDOW))
 
 # Fallback: if most sessions carry no session-level medium, the session view is
 # mostly "(not set)" and says nothing — use first-touch medium and label it.
@@ -422,9 +180,9 @@ channel_tbl = (channel_raw.groupby(channel_dim, as_index=False)[_ch_metrics].sum
 # Reconciliation: every session must land in exactly one channel. A mismatch
 # means the LEFT JOIN duplicated or dropped sessions.
 _ch_total = int(channel_tbl["sessions"].sum())
-if _ch_total != int(funnel_raw["step1_sessions"].iloc[0]):
+if _ch_total != int(funnel_raw["sessions"].iloc[0]):
     print(f"  WARNING: channel sessions ({_ch_total:,}) != funnel sessions "
-          f"({int(funnel_raw['step1_sessions'].iloc[0]):,}) — check the sm join")
+          f"({int(funnel_raw['sessions'].iloc[0]):,}) — check the session_attrs join")
 
 # Collapse channels under 1% of sessions into one row so the chart is not
 # dominated by noise from tiny denominators.
@@ -494,36 +252,7 @@ channel_rows_html = "\n".join(_channel_row(r) for r in channel_tbl.itertuples())
 
 # ── 4. Shoppers funnel (entry at view_item) ───────────────────────────────────
 print("Querying shoppers funnel...")
-shoppers_raw = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, event_name, MIN(event_timestamp) AS first_ts
-  FROM base WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
-  FROM se GROUP BY user_pseudo_id, session_id
-)
-SELECT
-  COUNT(*) AS step1_view_item,
-  COUNTIF(ts_c IS NOT NULL AND ts_c>=ts_v) AS step2_add_to_cart,
-  COUNTIF(ts_k IS NOT NULL AND ts_k>=ts_c AND ts_c>=ts_v) AS step3_begin_checkout,
-  COUNTIF(ts_p IS NOT NULL AND ts_p>=ts_k AND ts_k>=ts_c AND ts_c>=ts_v) AS step4_purchase
-FROM pv WHERE ts_v IS NOT NULL
-""")
+shoppers_raw = q(queries.shoppers_funnel_sql(*WINDOW))
 
 # ── 4b. Product category view → cart (E2) ─────────────────────────────────────
 # Question: the second-largest leak is view_item → add_to_cart. Which product
@@ -541,69 +270,7 @@ FROM pv WHERE ts_v IS NOT NULL
 # so session_start and begin_checkout have no category to group by.
 MIN_CATEGORY_VIEWS = 500   # categories below this are too noisy to rank
 print("Querying product category view → cart...")
-category_raw = q(f"""
-WITH item_events AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp,
-    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category,
-    -- add_to_cart events carry the whole product list (~11 items); only the
-    -- item with quantity > 0 was actually carted. view_item rows have no quantity.
-    IFNULL(it.quantity, 0) AS quantity,
-    it.price AS price
-  FROM `{DATASET}.events_*`, UNNEST(items) AS it
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('view_item','add_to_cart')
-),
-normalised AS (
-  -- item_category mixes flat labels ("Bags") with paths ("Lifestyle/Bags/").
-  -- Keep the last path segment so both land in one bucket. Normalising here,
-  -- before the per-session grouping, means a session that viewed both labels
-  -- is counted once — merging rows afterwards in pandas would double-count it.
-  -- ' / ' (slash with spaces) is part of a name, e.g. "Men's / Unisex", not a separator.
-  SELECT *,
-    IF(raw_category = '(not set)', raw_category,
-       COALESCE(NULLIF(TRIM(REPLACE(ARRAY_REVERSE(SPLIT(TRIM(REPLACE(raw_category, ' / ', ' | '), '/'), '/'))[SAFE_OFFSET(0)], ' | ', ' / ')), ''),
-                '(not set)')) AS item_category
-  FROM item_events
-),
-labels AS (
-  SELECT item_category,
-    COUNT(DISTINCT raw_category) AS n_source_labels,
-    STRING_AGG(DISTINCT raw_category, ' · ' ORDER BY raw_category) AS source_labels
-  FROM normalised
-  GROUP BY item_category
-),
-sc AS (
-  SELECT user_pseudo_id, session_id, item_category,
-    MIN(IF(event_name='view_item',   event_timestamp, NULL)) AS ts_first_view,
-    MAX(IF(event_name='add_to_cart' AND quantity > 0, event_timestamp, NULL)) AS ts_last_cart
-  FROM normalised WHERE session_id IS NOT NULL
-  GROUP BY user_pseudo_id, session_id, item_category
-),
-agg AS (
-  SELECT item_category,
-    COUNTIF(ts_first_view IS NOT NULL) AS viewing_sessions,
-    -- MAX(cart) >= MIN(view) ⇔ at least one add-to-cart at/after the first view
-    COUNTIF(ts_first_view IS NOT NULL AND ts_last_cart >= ts_first_view) AS carting_sessions
-  FROM sc
-  GROUP BY item_category
-),
--- Median listed price of the category's products as seen in product lists:
--- price is a confounder for seen → carted (cheap items are an easier yes).
-price AS (
-  -- Exact median (PERCENTILE_CONT), not APPROX_QUANTILES: the approximate one
-  -- varies slightly between runs, and the notebook and dashboard must agree.
-  SELECT DISTINCT item_category,
-    PERCENTILE_CONT(price, 0.5) OVER (PARTITION BY item_category) AS median_price
-  FROM normalised
-  WHERE event_name = 'view_item' AND price IS NOT NULL
-)
-SELECT agg.*, labels.n_source_labels, labels.source_labels, price.median_price
-FROM agg JOIN labels USING (item_category) LEFT JOIN price USING (item_category)
-ORDER BY viewing_sessions DESC
-""")
+category_raw = q(queries.category_sql(*WINDOW))
 
 _cat_all_views   = int(category_raw["viewing_sessions"].sum())
 category_raw_labels    = int(category_raw["n_source_labels"].sum())
@@ -687,82 +354,11 @@ category_rows_html = "\n".join(
 
 # ── 5. Time-to-convert ────────────────────────────────────────────────────────
 print("Querying time-to-convert...")
-ttc_df = q(f"""
-WITH base AS (
-  SELECT user_pseudo_id,
-    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
-    event_name, event_timestamp
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name IN ('session_start','view_item','add_to_cart','begin_checkout','purchase')
-),
-se AS (
-  SELECT user_pseudo_id, session_id, event_name, MIN(event_timestamp) AS first_ts
-  FROM base WHERE session_id IS NOT NULL GROUP BY user_pseudo_id, session_id, event_name
-),
-pv AS (
-  SELECT user_pseudo_id, session_id,
-    MAX(CASE WHEN event_name='session_start'  THEN first_ts END) AS ts_s,
-    MAX(CASE WHEN event_name='view_item'      THEN first_ts END) AS ts_v,
-    MAX(CASE WHEN event_name='add_to_cart'    THEN first_ts END) AS ts_c,
-    MAX(CASE WHEN event_name='begin_checkout' THEN first_ts END) AS ts_k,
-    MAX(CASE WHEN event_name='purchase'       THEN first_ts END) AS ts_p
-  FROM se GROUP BY user_pseudo_id, session_id
-),
-ff AS (SELECT * FROM pv
-  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k),
--- Tracking check over every session with an add_to_cart (not only converters):
--- an add-to-cart logged at the exact microsecond of the first view_item, or
--- before / without any view_item, is an instrumentation signal, not behaviour.
-cart AS (
-  SELECT COUNT(*) AS carting_sessions,
-    COUNTIF(ts_c = ts_v) AS cart_same_ts_as_view,
-    COUNTIF(ts_v IS NULL OR ts_c < ts_v) AS cart_before_or_without_view,
-    COUNTIF(ts_c > ts_v AND ts_c - ts_v < 1000000) AS cart_within_1s_after_view
-  FROM pv WHERE ts_c IS NOT NULL
-)
-SELECT t.*, cart.*
-FROM (
-  -- Minutes: the steps are minutes apart, so hours hide them behind decimals.
-  SELECT
-    ROUND(APPROX_QUANTILES((ts_v-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_s_to_v,
-    ROUND(APPROX_QUANTILES((ts_c-ts_v)/60000000.0,100)[OFFSET(50)],1) AS p50_v_to_c,
-    ROUND(APPROX_QUANTILES((ts_k-ts_c)/60000000.0,100)[OFFSET(50)],1) AS p50_c_to_k,
-    ROUND(APPROX_QUANTILES((ts_p-ts_k)/60000000.0,100)[OFFSET(50)],1) AS p50_k_to_p,
-    ROUND(APPROX_QUANTILES((ts_p-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_total,
-    COUNT(*) AS converting_sessions,
-    COUNTIF(ts_c = ts_v) AS converting_same_ts
-  FROM ff
-) t CROSS JOIN cart
-""")
+ttc_df = q(queries.time_to_convert_sql(*WINDOW))
 
 # ── 6. Cohort retention ───────────────────────────────────────────────────────
 print("Querying cohort retention...")
-cohort_df = q(f"""
-WITH fs AS (
-  SELECT user_pseudo_id,
-    DATE_TRUNC(PARSE_DATE('%Y%m%d', MIN(event_date)), WEEK(MONDAY)) AS cohort_week
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name = 'session_start'
-  GROUP BY user_pseudo_id
-),
-act AS (
-  SELECT DISTINCT user_pseudo_id,
-    DATE_TRUNC(PARSE_DATE('%Y%m%d', event_date), WEEK(MONDAY)) AS activity_week
-  FROM `{DATASET}.events_*`
-  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
-    AND event_name = 'session_start'
-)
-SELECT f.cohort_week,
-  DATE_DIFF(a.activity_week, f.cohort_week, WEEK) AS weeks_since_cohort,
-  COUNT(DISTINCT a.user_pseudo_id) AS active_users
-FROM fs f JOIN act a USING (user_pseudo_id)
-WHERE a.activity_week >= f.cohort_week
-GROUP BY f.cohort_week, weeks_since_cohort
-ORDER BY f.cohort_week, weeks_since_cohort
-""")
+cohort_df = q(queries.cohort_sql(*WINDOW))
 cohort_pivot = cohort_df.pivot(index="cohort_week", columns="weeks_since_cohort",
                                values="active_users")
 
@@ -924,8 +520,8 @@ conv_same_ts_pct = (int(ttc_df["converting_same_ts"].iloc[0])
 
 # Shoppers ATC rate
 shoppers_atc = round(
-    int(shoppers_raw["step2_add_to_cart"].iloc[0]) /
-    int(shoppers_raw["step1_view_item"].iloc[0]) * 100, 1
+    int(shoppers_raw["add_to_cart"].iloc[0]) /
+    int(shoppers_raw["view_item"].iloc[0]) * 100, 1
 )
 
 # Biggest absolute drop step
@@ -983,8 +579,8 @@ if has_visitor_split:
 lift_5pp_views = int(total_sessions * 0.05)
 # Of those extra view_item sessions, apply the observed view_item → purchase rate
 # purchase rate = (purchases from view_item sessions) / (sessions that viewed item)
-view_item_n    = int(funnel_raw["step2_view_item"].iloc[0])
-purchase_n_raw = int(funnel_raw["step5_purchase"].iloc[0])
+view_item_n    = int(funnel_raw["view_item"].iloc[0])
+purchase_n_raw = int(funnel_raw["purchase"].iloc[0])
 view_to_purchase_rate = purchase_n_raw / view_item_n  # e.g. 2721/75261 ≈ 3.6%
 lift_5pp_purchases = round(lift_5pp_views * view_to_purchase_rate)
 # Revenue per funnel purchase, not AOV: AOV excludes the purchases that record
@@ -1303,7 +899,7 @@ channel_basis_note = (
 # ── Priority-3 impact — must agree with the channel verdict ───────────────────
 # Budget reallocation is only argued when channel IS the driver; otherwise the
 # impact is sized from the category gap, the lever the analysis points to.
-_cart_to_purchase = purchase_n / int(funnel_raw["step3_add_to_cart"].iloc[0])
+_cart_to_purchase = purchase_n / int(funnel_raw["add_to_cart"].iloc[0])
 _cat_orders  = round(category_top3_at_stake * _cart_to_purchase)
 _cat_revenue = round(_cat_orders * rev_per_purchase, 0)
 if channel_is_driver:
