@@ -16,7 +16,7 @@ e-commerce sample (Nov 2020 – Jan 2021).
 |---|---|---|---|---|---|---|
 | E1 | Traffic source × funnel cross-tab | ✅ done | 4–6 | High | Low | — |
 | E2 | Product category funnel breakdown | ✅ done | 5–7 | High | Low | — |
-| E3 | Return-visitor vs new-visitor funnel | | 4–5 | Medium | Low | — |
+| E3 | Return-visitor vs new-visitor funnel | ✅ done | 4–5 | Medium | Low | — |
 | E4 | Parameterised date range and config | ✅ done | 2–3 | Medium | Low | — |
 | E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
 | E6 | Statistical significance (device, channel, category) | ✅ done | 3–4 | Medium | Low | — |
@@ -162,6 +162,8 @@ lever is retention and re-engagement (email, retargeting), not acquisition.
 | Add as notebook Section 7b (between cohort retention and AI brief) | Query + chart + commentary cell | 1 h |
 
 **Effort:** 4–5 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** None
+
+**Status:** Implemented 2026-11-19 — notebook Section 8c, dashboard "New vs Returning Sessions" card, LLM context in 10c. Sessions are flagged with GA4's `ga_session_number = 1` (first session ever for that cookie) rather than a `ROW_NUMBER()` over the window, so users first seen before the window are not misclassified as new. Computed on the same per-session scan as the data-quality checks (all sessions, the primary basis). First run: returning sessions buy at 1.69% vs 0.42% for new (4.1×, χ² p < 0.001) and earn $1.27 vs $0.27 per session. Because returners self-select, Recommendation 2 is sized as a range — extra returning users valued between the new and returning rates ($2.6k–$12.0k over the window). Still to do: the new vs returning option in the dashboard's segment dropdown (planned with the other interactive controls).
 
 **Expected outcome:** A chart showing funnel conversion for new vs return visitors.
 If return-visitor conversion is 2× or more, the narrative shifts: the product has

@@ -182,7 +182,9 @@ FROM (
 # some events, so the fewer events a session has, the likelier it has none.
 # Grouping sets give the overall split, a split by session length, and a split
 # by device in one scan.
-print("Querying data quality (unattributed sessions)...")
+# The same per-session scan also carries ga_session_number, so the new vs
+# returning split (E3) is computed on exactly the same session basis.
+print("Querying session-level splits (data quality, new vs returning)...")
 dq_raw = q(f"""
 WITH ev AS (
   SELECT user_pseudo_id, event_name, event_timestamp, device.category AS dev,
@@ -192,7 +194,9 @@ WITH ev AS (
     (SELECT ep.value.string_value FROM UNNEST(event_params) AS ep
      WHERE ep.key = 'medium' LIMIT 1) AS medium,
     (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
-     WHERE ep.key = 'engagement_time_msec' LIMIT 1) AS eng_msec
+     WHERE ep.key = 'engagement_time_msec' LIMIT 1) AS eng_msec,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'ga_session_number' LIMIT 1) AS session_number
   FROM `{DATASET}.events_*`
   WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
 ),
@@ -201,6 +205,9 @@ s AS (
     COUNT(*) AS n_events, COUNTIF(medium IS NOT NULL) AS n_medium,
     COUNTIF(event_name = 'page_view') AS n_page_view,
     SUM(IFNULL(eng_msec, 0)) / 1000 AS engaged_s,
+    -- GA4 counts sessions per user from the first visit ever, not from the
+    -- start of this window, so 1 = genuinely new (for that cookie).
+    MAX(session_number) AS session_number,
     MIN(IF(event_name='session_start',  event_timestamp, NULL)) AS ts_s,
     MIN(IF(event_name='view_item',      event_timestamp, NULL)) AS ts_v,
     MIN(IF(event_name='add_to_cart',    event_timestamp, NULL)) AS ts_c,
@@ -213,6 +220,8 @@ s AS (
 f AS (
   SELECT *,
     n_medium > 0 AS attributed,
+    CASE WHEN session_number = 1 THEN 'new' WHEN session_number > 1 THEN 'returning'
+         ELSE 'unknown' END AS visitor,
     CASE WHEN n_events <= 3 THEN '1–3' WHEN n_events <= 5 THEN '4–5'
          WHEN n_events <= 8 THEN '6–8' WHEN n_events <= 15 THEN '9–15'
          ELSE '16+' END AS size_bucket,
@@ -224,8 +233,9 @@ f AS (
 )
 SELECT
   CASE WHEN GROUPING(size_bucket) = 0 THEN 'size'
-       WHEN GROUPING(dev) = 0 THEN 'device' ELSE 'all' END AS cut,
-  size_bucket, dev, attributed,
+       WHEN GROUPING(dev) = 0 THEN 'device'
+       WHEN GROUPING(visitor) = 0 THEN 'visitor' ELSE 'all' END AS cut,
+  size_bucket, dev, attributed, visitor,
   COUNT(*) AS sessions,
   COUNTIF(s2) AS view_item, COUNTIF(s3) AS add_to_cart,
   COUNTIF(s4) AS begin_checkout, COUNTIF(s5) AS purchase,
@@ -234,7 +244,7 @@ SELECT
   APPROX_QUANTILES(engaged_s, 2)[OFFSET(1)] AS median_engaged_s,
   APPROX_QUANTILES(n_events, 2)[OFFSET(1)] AS median_events
 FROM f
-GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed))
+GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed), (visitor))
 """)
 
 # ── 2c. Event-quality checks: what view_item and add_to_cart actually record ──
@@ -857,6 +867,21 @@ def _funnel_stats(r):
             "cvr": r["purchase"] / r["sessions"] * 100,
             "rev_per_session": r["revenue"] / r["sessions"]}
 sens_all = _funnel_stats(_dq_all.sum(numeric_only=True))
+
+# ── E3 — new vs returning sessions (ga_session_number = 1 → new) ─────────────
+# Same per-session scan and the same all-sessions basis as the primary funnel.
+_vis = dq_raw[dq_raw["cut"] == "visitor"].set_index("visitor")
+visitor_stats = {k: _funnel_stats(_vis.loc[k]) for k in ("new", "returning") if k in _vis.index}
+for k in visitor_stats:
+    visitor_stats[k]["purchases"] = int(_vis.loc[k, "purchase"])
+    visitor_stats[k]["ci"] = wilson_ci(int(_vis.loc[k, "purchase"]), int(_vis.loc[k, "sessions"]))
+visitor_unknown_n = int(_vis.loc["unknown", "sessions"]) if "unknown" in _vis.index else 0
+has_visitor_split = {"new", "returning"} <= set(visitor_stats)
+if has_visitor_split:
+    vs_new, vs_ret = visitor_stats["new"], visitor_stats["returning"]
+    visitor_cvr_ratio = vs_ret["cvr"] / vs_new["cvr"] if vs_new["cvr"] else float("nan")
+    visitor_test = chi_square([vs_new["purchases"], vs_ret["purchases"]],
+                              [vs_new["sessions"], vs_ret["sessions"]])
 sens_ex  = _funnel_stats(at)
 if sens_all["sessions"] != total_sessions:
     print(f"  WARNING: data-quality sessions ({sens_all['sessions']:,}) != funnel sessions ({total_sessions:,})")
@@ -921,6 +946,15 @@ _wk1_obs = _wk1_obs[_wk1_obs[1].notna()] if 1 in _wk1_obs.columns else _wk1_obs.
 wk1_base_users  = int(_wk1_obs[0].sum())
 wk1_n_cohorts   = len(_wk1_obs)
 wk1_extra_users = max(0, round(wk1_base_users * WK1_TARGET / 100 - float(_wk1_obs[1].sum()))) if wk1_n_cohorts else 0
+
+# Recommendation 2 in revenue (E3). Each extra returning user is counted as ONE
+# extra session (a floor — returners often have more). The value of that session
+# is bracketed: returning sessions earn more per session, but partly because the
+# users who come back unprompted were keener to begin with, so re-engaged users
+# are priced between the new-session and returning-session rates.
+if has_visitor_split:
+    rec2_rev_low  = round(wk1_extra_users * vs_new["rev_per_session"], 0)
+    rec2_rev_high = round(wk1_extra_users * vs_ret["rev_per_session"], 0)
 
 # Opportunity sizing: what if we lift session → view_item by 5pp?
 # Extra sessions that would now view a product if the rate goes from current to current+5pp
@@ -1294,6 +1328,55 @@ else:
         "seen → carted drop is spread evenly across the catalogue rather than "
         "concentrated in specific categories.</p>"
     )
+
+# ── New vs returning (E3) ─────────────────────────────────────────────────────
+if has_visitor_split:
+    def _vrow(label, key, fmt):
+        return (f'<tr><td class="dev-name">{label}</td><td>{fmt.format(vs_new[key])}</td>'
+                f'<td>{fmt.format(vs_ret[key])}</td></tr>')
+    visitor_rows = "\n".join([
+        _vrow("Sessions", "sessions", "{:,}"),
+        _vrow("Saw a product", "view_pct", "{:.1f}%"),
+        _vrow("Saw → carted", "view_to_cart", "{:.1f}%"),
+        _vrow("Cart → checkout", "cart_to_checkout", "{:.1f}%"),
+        _vrow("Checkout → purchase", "checkout_to_purchase", "{:.1f}%"),
+        _vrow("Session → purchase", "cvr", "{:.2f}%"),
+        _vrow("Revenue / session", "rev_per_session", "${:,.2f}"),
+    ]) + (f'<tr><td class="dev-name">95% CI (purchase)</td>'
+          f'<td class="ci">{vs_new["ci"][0]:.2f}–{vs_new["ci"][1]:.2f}%</td>'
+          f'<td class="ci">{vs_ret["ci"][0]:.2f}–{vs_ret["ci"][1]:.2f}%</td></tr>')
+    visitor_html = f"""
+  <p class="section-label">New vs Returning Sessions</p>
+  <div class="card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Funnel</th><th>New (session 1)</th><th>Returning</th></tr></thead>
+          <tbody>
+{visitor_rows}
+          </tbody>
+        </table>
+      </div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>A session is <strong>new</strong> when GA4's <code>ga_session_number</code> is 1 (the
+        user's first session ever on that device/browser), otherwise <strong>returning</strong>.
+        Returning sessions are {vs_ret["sessions"] / (vs_new["sessions"] + vs_ret["sessions"]) * 100:.0f}% of
+        traffic but buy at <strong>{vs_ret["cvr"]:.2f}%</strong> against
+        {vs_new["cvr"]:.2f}% — <strong>{visitor_cvr_ratio:.1f}×</strong> — and earn
+        ${vs_ret["rev_per_session"]:,.2f} per session against ${vs_new["rev_per_session"]:,.2f}
+        (χ² {fmt_p(visitor_test["p"])}). They do better at every step, the largest gap being
+        checkout → purchase ({vs_ret["checkout_to_purchase"]:.0f}% vs
+        {vs_new["checkout_to_purchase"]:.0f}%).</p>
+        <p class="caveat-note">This is not the effect of coming back. Users who return
+        unprompted were already keener, so re-engaged users are priced between the two
+        rates in Recommendation 2, not at the returning rate.</p>
+      </div>
+    </div>
+  </div>
+"""
+else:
+    visitor_html = ""
 
 # ── Data-quality callout ──────────────────────────────────────────────────────
 # Stated near the top because three of these facts change how the headline
@@ -1940,6 +2023,7 @@ html = f"""<!DOCTYPE html>
     </div>
   </div>
 
+{visitor_html}
   <!-- ── Recommendations ────────────────────────────────────────────────── -->
   <p class="section-label">Recommendations — Prioritised by Impact</p>
   <div class="rec-grid">
@@ -2001,7 +2085,11 @@ html = f"""<!DOCTYPE html>
         <strong>{WK1_TARGET:.0f}%</strong> would have brought back
         ~<strong>{wk1_extra_users:,}</strong> more users in their second week, across the
         {wk1_n_cohorts} full cohorts ({wk1_base_users:,} first-time users) observed in this
-        window — repeat sessions that need no extra acquisition spend.</p>
+        window — repeat sessions that need no extra acquisition spend.
+        {f"Counting one session each, valued between a new session (${vs_new['rev_per_session']:,.2f}) "
+         f"and a returning one (${vs_ret['rev_per_session']:,.2f}), that is "
+         f"<strong>${rec2_rev_low:,.0f}–${rec2_rev_high:,.0f}</strong> over the window, before any "
+         f"cart-recovery effect." if has_visitor_split else ""}</p>
         <div class="metric">cart → checkout rate · Week-1 return (target: {WK1_TARGET:.0f}%, a planning assumption)</div>
       </div>
     </div>
