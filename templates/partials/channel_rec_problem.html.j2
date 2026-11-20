@@ -1,6 +1,0 @@
-{% if channel_is_driver -%}
-Product reach varies by <strong>{{ channel_view_spread|fmt('.1f') }}pp</strong> across channels — from {{ worst_view_pct|fmt('.1f') }}% ({{ worst_view_channel }}) to {{ best_view_pct|fmt('.1f') }}% ({{ best_view_channel }}). Acquisition quality explains part of the discovery gap, so budget and landing pages are levers alongside navigation.
-{%- else -%}
-Product reach is within <strong>{{ channel_view_spread|fmt('.1f') }}pp</strong> across channels{% if channel_borderline %} (just under the 10pp threshold){% endif %}, so discovery is mainly not a traffic-quality problem. Channels still differ in <em>value</em>, though — revenue per session is the remaining reason to segment.
-{%- endif %}
-{%- if top_rev_channel %} Highest revenue per session: <strong>{{ top_rev_channel }}</strong> (${{ top_rev_rps|fmt(',.2f') }}).{% endif %}

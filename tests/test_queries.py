@@ -110,8 +110,29 @@ def test_multi_row_results_have_a_total_order():
         "category_sql":        "ORDER BY viewing_sessions DESC, item_category",
         "session_quality_sql": "ORDER BY cut, size_bucket, dev, attributed, visitor",
         "cohort_sql":          "ORDER BY f.cohort_week, weeks_since_cohort",
+        "cohort_channel_sql":  "ORDER BY 1, 2",
+        "price_band_sql":      "ORDER BY price_band",
+        "landing_pages_sql":   "ORDER BY sessions DESC, landing_page",
+        "category_overlap_sql": "ORDER BY sightings DESC, item_name",
     }
     sqls = all_query_sql()
     for name, clause in expected.items():
         assert clause in sqls[name], name
     assert "ORDER BY event_timestamp, medium LIMIT 1" in queries.session_attrs_cte(*W)
+
+
+def test_price_bands_cover_every_positive_price_once():
+    sql = queries._price_band_sql("p")
+    labels = [label for _, label in queries.PRICE_BANDS]
+    assert all(f"'{l}'" in sql for l in labels)
+    assert "p IS NULL OR p <= 0 THEN NULL" in sql            # no band for missing or zero prices
+    bounds = [hi for hi, _ in queries.PRICE_BANDS if hi]
+    assert bounds == sorted(bounds) and queries.PRICE_BANDS[-1][0] is None
+
+
+def test_landing_pages_use_the_funnel_session_table():
+    sql = queries.landing_pages_sql(*W)
+    assert "COUNTIF(s.s2) AS view_item" in sql and "WHERE s.s1" in sql
+    assert "HAVING COUNT(*) >= 100" in sql
+    assert "event_name = 'page_view'" in sql
+

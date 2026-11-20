@@ -367,10 +367,12 @@ FROM {events_from(dataset, start, end)}
 def event_quality_sql(dataset: str, start: str, end: str) -> str:
     """What view_item and add_to_cart actually record. A list-sized items array
     means a listing impression / quick-add, not a product-page view; on
-    add_to_cart only the item with quantity > 0 was actually carted."""
+    add_to_cart only the item with quantity > 0 was actually carted. Events
+    with no items cannot be attributed to a listing page or a price band."""
     return f"""SELECT event_name, COUNT(*) AS events,
   ROUND(AVG(ARRAY_LENGTH(items)), 1) AS avg_items,
   COUNTIF(ARRAY_LENGTH(items) > 1) AS multi_item_events,
+  COUNTIF(IFNULL(ARRAY_LENGTH(items), 0) = 0) AS no_item_events,
   COUNTIF((SELECT COUNTIF(IFNULL(it.quantity, 0) > 0) FROM UNNEST(items) AS it) = 1) AS one_carted_item_events
 FROM {events_from(dataset, start, end)}
   AND event_name IN ('view_item', 'add_to_cart')
@@ -391,7 +393,13 @@ CATEGORY_LABEL_SQL = (
 
 
 def category_sql(dataset: str, start: str, end: str) -> str:
-    """Seen → carted by product category.
+    """Seen → carted by item_category.
+
+    item_category is the listing context a product was shown in, not a fixed
+    product attribute: in the public sample almost every product appears under
+    several categories (a tee under Apparel, Google, Men's T-Shirts and Sale).
+    parent_node, from the raw paths, lets the caller split listing pages into
+    product types, brands, collections and parent nodes.
 
     Grain: one row per (session, item_category). A session "saw" a category
     when a product from it appeared in a viewed list, and "carted" it only if
@@ -426,6 +434,26 @@ labels AS (
   FROM normalised
   GROUP BY item_category
 ),
+-- Parent node: the path segment above the label in the raw paths
+-- ("Home/Apparel/Hats/" → Apparel, "Home/Sale/" → Home, "Lifestyle/Bags/" →
+-- Lifestyle). Flat labels have none. The most frequent parent wins, ties by name.
+parents AS (
+  SELECT item_category,
+    ARRAY_AGG(parent ORDER BY n DESC, parent LIMIT 1)[OFFSET(0)] AS parent_node
+  FROM (
+    SELECT item_category, parent, COUNT(*) AS n
+    FROM (
+      SELECT item_category,
+        TRIM(REPLACE(segs[SAFE_OFFSET(ARRAY_LENGTH(segs) - 2)], ' | ', ' / ')) AS parent
+      FROM (SELECT item_category,
+              SPLIT(TRIM(REPLACE(raw_category, ' / ', ' | '), '/'), '/') AS segs
+            FROM normalised WHERE raw_category != '(not set)')
+    )
+    WHERE parent IS NOT NULL AND parent != ''
+    GROUP BY 1, 2
+  )
+  GROUP BY item_category
+),
 sc AS (
   SELECT user_pseudo_id, session_id, item_category,
     MIN(IF(event_name='view_item',   event_timestamp, NULL)) AS ts_first_view,
@@ -449,9 +477,149 @@ price AS (
   FROM normalised
   WHERE event_name = 'view_item' AND price IS NOT NULL
 )
-SELECT agg.*, labels.n_source_labels, labels.source_labels, price.median_price
+SELECT agg.*, labels.n_source_labels, labels.source_labels, price.median_price,
+  parents.parent_node
 FROM agg JOIN labels USING (item_category) LEFT JOIN price USING (item_category)
+  LEFT JOIN parents USING (item_category)
 ORDER BY viewing_sessions DESC, item_category
+"""
+
+
+def category_overlap_sql(dataset: str, start: str, end: str) -> str:
+    """How many products appear under more than one item_category (normalised
+    as in category_sql) in view_item lists — the evidence that item_category is
+    a listing context, not a product attribute. Returns one row per product,
+    most-viewed first, with its categories."""
+    return f"""WITH items AS (
+  SELECT it.item_name,
+    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category
+  FROM `{dataset}.events_*`, UNNEST(items) AS it
+  WHERE _TABLE_SUFFIX BETWEEN '{start}' AND '{end}'
+    AND event_name = 'view_item' AND it.item_name IS NOT NULL
+),
+normalised AS (
+  SELECT item_name, {CATEGORY_LABEL_SQL} AS item_category FROM items
+)
+SELECT item_name,
+  COUNT(*) AS sightings,
+  COUNT(DISTINCT item_category) AS n_categories,
+  STRING_AGG(DISTINCT item_category, ' · ' ORDER BY item_category) AS categories
+FROM normalised
+WHERE item_category != '(not set)'
+GROUP BY item_name
+ORDER BY sightings DESC, item_name
+"""
+
+PRICE_BANDS = ((10, "under $10"), (20, "$10–20"), (30, "$20–30"), (50, "$30–50"), (None, "$50+"))
+"""Upper bound (exclusive) and label of each band, cheapest first."""
+
+
+def _price_band_sql(col: str) -> str:
+    parts = [f"WHEN {col} < {hi} THEN '{label}'" for hi, label in PRICE_BANDS if hi]
+    return f"CASE WHEN {col} IS NULL OR {col} <= 0 THEN NULL {' '.join(parts)} ELSE '{PRICE_BANDS[-1][1]}' END"
+
+
+def price_band_sql(dataset: str, start: str, end: str) -> str:
+    """Seen → carted by the item's own price band — the same rule as
+    category_sql (seen in a viewed list; carted only if the carted item, the one
+    with quantity > 0, is in the band and was carted at or after the first
+    sighting). Price is a product attribute, unlike item_category."""
+    return f"""WITH item_events AS (
+  SELECT user_pseudo_id,
+    {param('ga_session_id')} AS session_id,
+    event_name, event_timestamp,
+    IFNULL(it.quantity, 0) AS quantity,
+    {_price_band_sql('it.price')} AS price_band
+  FROM `{dataset}.events_*`, UNNEST(items) AS it
+  WHERE _TABLE_SUFFIX BETWEEN '{start}' AND '{end}'
+    AND event_name IN ('view_item','add_to_cart')
+),
+sb AS (
+  SELECT user_pseudo_id, session_id, price_band,
+    MIN(IF(event_name='view_item', event_timestamp, NULL)) AS ts_first_view,
+    MAX(IF(event_name='add_to_cart' AND quantity > 0, event_timestamp, NULL)) AS ts_last_cart
+  FROM item_events WHERE session_id IS NOT NULL AND price_band IS NOT NULL
+  GROUP BY user_pseudo_id, session_id, price_band
+)
+SELECT price_band,
+  COUNTIF(ts_first_view IS NOT NULL) AS viewing_sessions,
+  COUNTIF(ts_first_view IS NOT NULL AND ts_last_cart >= ts_first_view) AS carting_sessions
+FROM sb
+GROUP BY price_band
+ORDER BY price_band
+"""
+
+
+def landing_pages_sql(dataset: str, start: str, end: str, min_sessions: int = 100) -> str:
+    """Funnel by landing page: the path (no host, no query string) of the
+    session's first page_view. Uses the funnel's own session table, so the
+    saw-a-product rate is the funnel's step 2. Pages with fewer than
+    min_sessions landings are left out; '(no page_view)' collects sessions
+    without one."""
+    path = (f"REGEXP_REPLACE(REGEXP_REPLACE({param('page_location', 'string')}, "
+            f"r'^https?://[^/]+', ''), r'[?#].*$', '')")
+    return sessions_cte(dataset, start, end, attributes=True) + f""",
+landing AS (
+  SELECT user_pseudo_id, session_id,
+    ARRAY_AGG(path IGNORE NULLS ORDER BY event_timestamp, path LIMIT 1)[SAFE_OFFSET(0)] AS landing_page
+  FROM (
+    SELECT user_pseudo_id, {param('ga_session_id')} AS session_id, event_timestamp, {path} AS path
+    FROM {events_from(dataset, start, end)}
+      AND event_name = 'page_view'
+  )
+  WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id
+)
+SELECT COALESCE(l.landing_page, '(no page_view)') AS landing_page,
+  COUNT(*) AS sessions,
+  COUNTIF(s.s2) AS view_item,
+  COUNTIF(s.s5) AS purchase,
+  COUNTIF(s.session_number = 1) AS new_sessions,
+  COUNTIF(s.n_medium = 0) AS unattributed_sessions
+FROM sessions AS s LEFT JOIN landing AS l USING (user_pseudo_id, session_id)
+WHERE s.s1
+GROUP BY 1
+HAVING COUNT(*) >= {int(min_sessions)}
+ORDER BY sessions DESC, landing_page
+"""
+
+
+def cohort_channel_sql(dataset: str, start: str, end: str) -> str:
+    """Week-1 return by weekly cohort AND the channel of the user's first
+    session in the window (the session's own medium, as in the channel
+    funnel). Lets a change in Week-1 return be split into a change in channel
+    mix and a change within channels. Cohorts as in cohort_sql."""
+    return f"""WITH ev AS (
+  SELECT user_pseudo_id, event_name, event_timestamp,
+    {param('ga_session_id')} AS session_id,
+    {param('medium', 'string')} AS medium,
+    DATE_TRUNC(PARSE_DATE('%Y%m%d', event_date), WEEK(MONDAY)) AS wk
+  FROM {events_from(dataset, start, end)}
+),
+first_session AS (
+  SELECT user_pseudo_id,
+    ARRAY_AGG(STRUCT(session_id, wk) ORDER BY event_timestamp, session_id LIMIT 1)[OFFSET(0)] AS f
+  FROM ev WHERE event_name = 'session_start'
+  GROUP BY user_pseudo_id
+),
+first_medium AS (
+  SELECT fs.user_pseudo_id, fs.f.wk AS cohort_week,
+    ARRAY_AGG(ev.medium IGNORE NULLS ORDER BY ev.event_timestamp, ev.medium LIMIT 1)[SAFE_OFFSET(0)] AS medium
+  FROM first_session AS fs
+  LEFT JOIN ev ON ev.user_pseudo_id = fs.user_pseudo_id AND ev.session_id = fs.f.session_id
+  GROUP BY 1, 2
+),
+active AS (
+  SELECT DISTINCT user_pseudo_id, wk FROM ev WHERE event_name = 'session_start'
+)
+SELECT m.cohort_week, COALESCE(m.medium, '(not set)') AS medium,
+  COUNT(*) AS users,
+  COUNTIF(a.user_pseudo_id IS NOT NULL) AS wk1_users
+FROM first_medium AS m
+LEFT JOIN active AS a
+  ON a.user_pseudo_id = m.user_pseudo_id AND a.wk = DATE_ADD(m.cohort_week, INTERVAL 1 WEEK)
+GROUP BY 1, 2
+ORDER BY 1, 2
 """
 
 

@@ -51,3 +51,58 @@ def test_flag_categories_does_not_modify_its_input():
     before = df.copy()
     flag_categories(df, 15.0)
     pd.testing.assert_frame_equal(df, before)
+
+
+# ── listing_levels ────────────────────────────────────────────────────────────
+from metrics import listing_levels, weak_landing_pages, mix_decomposition
+
+
+def test_listing_levels_follow_the_parent_path():
+    cats    = pd.Series(["Hats", "Apparel", "YouTube", "Shop by Brand", "Sale", "Bags", "Lifestyle", "Backpacks"])
+    parents = pd.Series(["Apparel", "Home", "Shop by Brand", "Home", "Home", "Lifestyle", None, None])
+    assert list(listing_levels(cats, parents)) == [
+        "product type", "parent", "brand", "parent", "collection", "product type", "parent", "product type"]
+
+
+# ── weak_landing_pages ────────────────────────────────────────────────────────
+def test_weak_landing_pages_needs_volume_and_a_real_gap():
+    pages = pd.DataFrame({
+        "landing_page": ["/", "/weak", "/tiny-weak", "/close", "(no page_view)"],
+        "sessions":     [5000, 2000,    50,          2000,     1000],
+        "view_item":    [1100, 100,     0,           380,      0],
+    })
+    w = weak_landing_pages(pages, site_view_pct=20.0, total_sessions=10_050)
+    assert list(w["landing_page"]) == ["/weak"]          # tiny page and 1pp gap dropped
+    assert w.loc[0, "view_pct"] == 5.0 and w.loc[0, "gap_pp"] == 15.0
+    assert w.loc[0, "extra_views"] == 300                 # 15% of 2,000
+
+
+# ── mix_decomposition ─────────────────────────────────────────────────────────
+def test_mix_decomposition_pure_mix_change():
+    # Same rates in each segment, only the mix moves → the whole change is mix.
+    a = pd.DataFrame({"users": [500, 500], "successes": [50, 10]}, index=["hi", "lo"])
+    b = pd.DataFrame({"users": [200, 800], "successes": [20, 16]}, index=["hi", "lo"])
+    d = mix_decomposition(a, b)
+    assert d["rate_a"] == pytest.approx(6.0) and d["rate_b"] == pytest.approx(3.6)
+    assert d["within_pp"] == pytest.approx(0.0) and d["mix_pp"] == pytest.approx(-2.4)
+
+
+def test_mix_decomposition_pure_rate_change():
+    a = pd.DataFrame({"users": [500, 500], "successes": [50, 10]}, index=["hi", "lo"])
+    b = pd.DataFrame({"users": [500, 500], "successes": [25, 5]}, index=["hi", "lo"])
+    d = mix_decomposition(a, b)
+    assert d["mix_pp"] == pytest.approx(0.0) and d["within_pp"] == pytest.approx(-3.0)
+
+
+def test_weak_landing_share_uses_all_sessions_not_the_listed_pages():
+    # The landing query drops rare pages; shares must still be of every session.
+    pages = pd.DataFrame({"landing_page": ["/weak"], "sessions": [50], "view_item": [0]})
+    assert weak_landing_pages(pages, 20.0, total_sessions=10_000).empty    # 0.5% of sessions
+    assert len(weak_landing_pages(pages, 20.0, total_sessions=50)) == 1     # its own sum: 100%
+
+
+def test_weak_landing_pages_skip_pages_not_meant_to_show_products():
+    pages = pd.DataFrame({"landing_page": ["/signin.html", "/basket.html", "/store-policies/faq/", "/Apparel"],
+                          "sessions": [1000] * 4, "view_item": [0] * 4})
+    assert list(weak_landing_pages(pages, 20.0, total_sessions=4000)["landing_page"]) == ["/Apparel"]
+
