@@ -91,7 +91,10 @@ SELECT
 FROM pv WHERE ts_s IS NOT NULL
 """)
 
-step_labels = ["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"]
+# "View Products", not "View Item": in this export view_item fires on listing and
+# home pages with ~12 items per event (see the data-quality checks), so the step
+# means "saw products", not "opened a product page".
+step_labels = ["Session Start","View Products","Add to Cart","Begin Checkout","Purchase"]
 step_cols   = ["step1_sessions","step2_view_item","step3_add_to_cart",
                "step4_begin_checkout","step5_purchase"]
 funnel_df = pd.DataFrame({
@@ -144,14 +147,107 @@ pv AS (
   FROM se GROUP BY user_pseudo_id, session_id
 ),
 conv AS (SELECT * FROM pv
-  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k)
-SELECT
-  COUNT(*) AS purchasing_sessions,
-  ROUND(SUM(revenue),2) AS total_revenue,
-  ROUND(AVG(revenue),2) AS avg_order_value,
-  ROUND(APPROX_QUANTILES(revenue,100)[OFFSET(50)],2) AS median_order_value
-FROM conv WHERE revenue IS NOT NULL AND revenue > 0
+  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k),
+-- Every session with a purchase, sequential or not: the funnel's revenue is a
+-- subset of this, and the gap is disclosed rather than hidden.
+allp AS (
+  SELECT COUNT(*) AS all_purchasing_sessions,
+    ROUND(SUM(revenue),2) AS all_revenue,
+    COUNTIF(ts_c IS NULL) AS purchases_without_cart
+  FROM pv WHERE ts_p IS NOT NULL
+)
+SELECT c.*, allp.*
+FROM (
+  SELECT
+    COUNT(*) AS purchasing_sessions,
+    -- Some purchase events carry no purchase_revenue. AOV is averaged over the
+    -- orders that do, so both counts are returned to keep the figures reconcilable.
+    COUNTIF(revenue > 0) AS orders_with_revenue,
+    ROUND(SUM(revenue),2) AS total_revenue,
+    ROUND(AVG(IF(revenue > 0, revenue, NULL)),2) AS avg_order_value,
+    ROUND(APPROX_QUANTILES(IF(revenue > 0, revenue, NULL),100)[OFFSET(50)],2) AS median_order_value
+  FROM conv
+) c CROSS JOIN allp
 """)
+
+# ── 2b. Data quality: sessions with no session-level medium ───────────────────
+# About a quarter of sessions carry no 'medium' on any event. This query tests
+# whether they are a distinct population (bots, a broken channel) or ordinary
+# short sessions that simply lack the tag: the medium param is attached to only
+# some events, so the fewer events a session has, the likelier it has none.
+# Grouping sets give the overall split, a split by session length, and a split
+# by device in one scan.
+print("Querying data quality (unattributed sessions)...")
+dq_raw = q(f"""
+WITH ev AS (
+  SELECT user_pseudo_id, event_name, event_timestamp, device.category AS dev,
+    ecommerce.purchase_revenue AS purchase_revenue,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
+    (SELECT ep.value.string_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'medium' LIMIT 1) AS medium,
+    (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
+     WHERE ep.key = 'engagement_time_msec' LIMIT 1) AS eng_msec
+  FROM `{DATASET}.events_*`
+  WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+),
+s AS (
+  SELECT user_pseudo_id, session_id, ANY_VALUE(dev) AS dev,
+    COUNT(*) AS n_events, COUNTIF(medium IS NOT NULL) AS n_medium,
+    COUNTIF(event_name = 'page_view') AS n_page_view,
+    SUM(IFNULL(eng_msec, 0)) / 1000 AS engaged_s,
+    MIN(IF(event_name='session_start',  event_timestamp, NULL)) AS ts_s,
+    MIN(IF(event_name='view_item',      event_timestamp, NULL)) AS ts_v,
+    MIN(IF(event_name='add_to_cart',    event_timestamp, NULL)) AS ts_c,
+    MIN(IF(event_name='begin_checkout', event_timestamp, NULL)) AS ts_k,
+    MIN(IF(event_name='purchase',       event_timestamp, NULL)) AS ts_p,
+    SUM(IF(event_name='purchase', purchase_revenue, NULL))      AS revenue
+  FROM ev WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id
+),
+f AS (
+  SELECT *,
+    n_medium > 0 AS attributed,
+    CASE WHEN n_events <= 3 THEN '1–3' WHEN n_events <= 5 THEN '4–5'
+         WHEN n_events <= 8 THEN '6–8' WHEN n_events <= 15 THEN '9–15'
+         ELSE '16+' END AS size_bucket,
+    IFNULL(ts_v >= ts_s, FALSE) AS s2,
+    IFNULL(ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s3,
+    IFNULL(ts_k >= ts_c AND ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s4,
+    IFNULL(ts_p >= ts_k AND ts_k >= ts_c AND ts_c >= ts_v AND ts_v >= ts_s, FALSE) AS s5
+  FROM s WHERE ts_s IS NOT NULL
+)
+SELECT
+  CASE WHEN GROUPING(size_bucket) = 0 THEN 'size'
+       WHEN GROUPING(dev) = 0 THEN 'device' ELSE 'all' END AS cut,
+  size_bucket, dev, attributed,
+  COUNT(*) AS sessions,
+  COUNTIF(s2) AS view_item, COUNTIF(s3) AS add_to_cart,
+  COUNTIF(s4) AS begin_checkout, COUNTIF(s5) AS purchase,
+  ROUND(SUM(IF(s5, IFNULL(revenue, 0), 0)), 2) AS revenue,
+  COUNTIF(n_page_view > 0) AS with_page_view,
+  APPROX_QUANTILES(engaged_s, 2)[OFFSET(1)] AS median_engaged_s,
+  APPROX_QUANTILES(n_events, 2)[OFFSET(1)] AS median_events
+FROM f
+GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed))
+""")
+
+# ── 2c. Event-quality checks: what view_item and add_to_cart actually record ──
+# view_item and add_to_cart carry an items array. If it holds a whole product
+# list rather than one product, the event is a listing impression / quick-add,
+# not a product-page view — which changes how "product page" claims can be made.
+# Only items with quantity > 0 on add_to_cart are the item actually carted.
+print("Querying event-quality checks...")
+evq_raw = q(f"""
+SELECT event_name, COUNT(*) AS events,
+  ROUND(AVG(ARRAY_LENGTH(items)), 1) AS avg_items,
+  COUNTIF(ARRAY_LENGTH(items) > 1) AS multi_item_events,
+  COUNTIF((SELECT COUNTIF(IFNULL(it.quantity, 0) > 0) FROM UNNEST(items) AS it) = 1) AS one_carted_item_events
+FROM `{DATASET}.events_*`
+WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
+  AND event_name IN ('view_item', 'add_to_cart')
+GROUP BY event_name
+""").set_index("event_name")
 
 # ── 3. Device breakdown ───────────────────────────────────────────────────────
 # Rendered as a summary table rather than a grouped bar chart: with all three
@@ -293,6 +389,8 @@ if session_medium_coverage >= 0.5:
     channel_dim, channel_basis = "session_medium", "session-level medium (event_params)"
 else:
     channel_dim, channel_basis = "first_touch_medium", "user first-touch medium (traffic_source.medium)"
+    print("  NOTE: channel fell back to first-touch medium — the dashboard's (not set) "
+          "explanation describes the session-level tag and should be reviewed.")
 
 channel_tbl = (channel_raw.groupby(channel_dim, as_index=False)[_ch_metrics].sum()
                .rename(columns={channel_dim: "channel"}))
@@ -421,7 +519,10 @@ WITH item_events AS (
     (SELECT ep.value.int_value FROM UNNEST(event_params) AS ep
      WHERE ep.key = 'ga_session_id' LIMIT 1) AS session_id,
     event_name, event_timestamp,
-    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category
+    COALESCE(NULLIF(TRIM(it.item_category), ''), '(not set)') AS raw_category,
+    -- add_to_cart events carry the whole product list (~11 items); only the
+    -- item with quantity > 0 was actually carted. view_item rows have no quantity.
+    IFNULL(it.quantity, 0) AS quantity
   FROM `{DATASET}.events_*`, UNNEST(items) AS it
   WHERE _TABLE_SUFFIX BETWEEN '{DATE_START}' AND '{DATE_END}'
     AND event_name IN ('view_item','add_to_cart')
@@ -448,7 +549,7 @@ labels AS (
 sc AS (
   SELECT user_pseudo_id, session_id, item_category,
     MIN(IF(event_name='view_item',   event_timestamp, NULL)) AS ts_first_view,
-    MAX(IF(event_name='add_to_cart', event_timestamp, NULL)) AS ts_last_cart
+    MAX(IF(event_name='add_to_cart' AND quantity > 0, event_timestamp, NULL)) AS ts_last_cart
   FROM normalised WHERE session_id IS NOT NULL
   GROUP BY user_pseudo_id, session_id, item_category
 ),
@@ -542,15 +643,30 @@ pv AS (
   FROM se GROUP BY user_pseudo_id, session_id
 ),
 ff AS (SELECT * FROM pv
-  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k)
-SELECT
-  ROUND(APPROX_QUANTILES((ts_v-ts_s)/3600000000.0,100)[OFFSET(50)],2) AS p50_s_to_v,
-  ROUND(APPROX_QUANTILES((ts_c-ts_v)/3600000000.0,100)[OFFSET(50)],2) AS p50_v_to_c,
-  ROUND(APPROX_QUANTILES((ts_k-ts_c)/3600000000.0,100)[OFFSET(50)],2) AS p50_c_to_k,
-  ROUND(APPROX_QUANTILES((ts_p-ts_k)/3600000000.0,100)[OFFSET(50)],2) AS p50_k_to_p,
-  ROUND(APPROX_QUANTILES((ts_p-ts_s)/3600000000.0,100)[OFFSET(50)],2) AS p50_total,
-  COUNT(*) AS converting_sessions
-FROM ff
+  WHERE ts_s IS NOT NULL AND ts_v>=ts_s AND ts_c>=ts_v AND ts_k>=ts_c AND ts_p>=ts_k),
+-- Tracking check over every session with an add_to_cart (not only converters):
+-- an add-to-cart logged at the exact microsecond of the first view_item, or
+-- before / without any view_item, is an instrumentation signal, not behaviour.
+cart AS (
+  SELECT COUNT(*) AS carting_sessions,
+    COUNTIF(ts_c = ts_v) AS cart_same_ts_as_view,
+    COUNTIF(ts_v IS NULL OR ts_c < ts_v) AS cart_before_or_without_view,
+    COUNTIF(ts_c > ts_v AND ts_c - ts_v < 1000000) AS cart_within_1s_after_view
+  FROM pv WHERE ts_c IS NOT NULL
+)
+SELECT t.*, cart.*
+FROM (
+  -- Minutes: the steps are minutes apart, so hours hide them behind decimals.
+  SELECT
+    ROUND(APPROX_QUANTILES((ts_v-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_s_to_v,
+    ROUND(APPROX_QUANTILES((ts_c-ts_v)/60000000.0,100)[OFFSET(50)],1) AS p50_v_to_c,
+    ROUND(APPROX_QUANTILES((ts_k-ts_c)/60000000.0,100)[OFFSET(50)],1) AS p50_c_to_k,
+    ROUND(APPROX_QUANTILES((ts_p-ts_k)/60000000.0,100)[OFFSET(50)],1) AS p50_k_to_p,
+    ROUND(APPROX_QUANTILES((ts_p-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_total,
+    COUNT(*) AS converting_sessions,
+    COUNTIF(ts_c = ts_v) AS converting_same_ts
+  FROM ff
+) t CROSS JOIN cart
 """)
 
 # ── 6. Cohort retention ───────────────────────────────────────────────────────
@@ -631,14 +747,97 @@ print("Computing insights...")
 total_sessions  = int(funnel_df["sessions"].iloc[0])
 view_item_n     = int(funnel_df["sessions"].iloc[1])
 purchase_n      = int(funnel_df["sessions"].iloc[4])
-overall_cvr     = float(funnel_df["overall_cvr"].iloc[4])
+# Unrounded: funnel_df["overall_cvr"] is rounded to 1 dp for display, which turns
+# 0.767% into "0.80%" once printed with two decimals.
+overall_cvr     = purchase_n / total_sessions * 100
 view_rate       = float(funnel_df["step_cvr"].iloc[1])   # session → view_item
 atc_from_view    = float(funnel_df["step_cvr"].iloc[2])     # add_to_cart as % of PRODUCT VIEWERS
 atc_all_sessions = float(funnel_df["overall_cvr"].iloc[2])  # add_to_cart as % of ALL SESSIONS
 aov             = float(revenue_df["avg_order_value"].iloc[0])
 median_order    = float(revenue_df["median_order_value"].iloc[0])
 total_revenue   = float(revenue_df["total_revenue"].iloc[0])
-total_ttc_hrs   = float(ttc_df["p50_total"].iloc[0])
+total_ttc_min   = float(ttc_df["p50_total"].iloc[0])
+
+# ── Revenue reconciliation ────────────────────────────────────────────────────
+# AOV is averaged over orders that carry revenue; some purchase events have none.
+# Sizing uses revenue per funnel purchase (total ÷ all purchases) so that
+# "extra purchases × $ per purchase" reproduces the observed total.
+orders_with_rev   = int(revenue_df["orders_with_revenue"].iloc[0])
+orders_no_rev     = purchase_n - orders_with_rev
+rev_per_purchase  = total_revenue / purchase_n if purchase_n else 0.0
+all_purch_sess    = int(revenue_df["all_purchasing_sessions"].iloc[0])
+all_revenue       = float(revenue_df["all_revenue"].iloc[0])
+purch_no_cart     = int(revenue_df["purchases_without_cart"].iloc[0])
+if int(revenue_df["purchasing_sessions"].iloc[0]) != purchase_n:
+    print(f"  WARNING: revenue query purchases ({int(revenue_df['purchasing_sessions'].iloc[0]):,}) "
+          f"!= funnel purchases ({purchase_n:,})")
+
+# ── Step losses after the shopper shows intent ────────────────────────────────
+carted_n          = int(funnel_df["sessions"].iloc[2])
+checkout_n        = int(funnel_df["sessions"].iloc[3])
+cart_to_checkout  = float(funnel_df["step_cvr"].iloc[3])
+cart_abandon_pct  = 100 - cart_to_checkout
+checkout_to_purch = float(funnel_df["step_cvr"].iloc[4])
+
+# ── Unattributed sessions (no session-level medium) ──────────────────────────
+_dq_all  = dq_raw[dq_raw["cut"] == "all"].set_index("attributed")
+_dq_size = dq_raw[dq_raw["cut"] == "size"].copy()
+_dq_dev  = dq_raw[dq_raw["cut"] == "device"].copy()
+ua, at   = _dq_all.loc[False], _dq_all.loc[True]
+ua_sessions, ua_share = int(ua["sessions"]), int(ua["sessions"]) / total_sessions * 100
+ua_view_pct   = ua["view_item"] / ua["sessions"] * 100
+at_view_pct   = at["view_item"] / at["sessions"] * 100
+ua_pv_pct     = ua["with_page_view"] / ua["sessions"] * 100
+at_pv_pct     = at["with_page_view"] / at["sessions"] * 100
+ua_med_eng, at_med_eng = float(ua["median_engaged_s"]), float(at["median_engaged_s"])
+ua_med_ev,  at_med_ev  = int(ua["median_events"]),    int(at["median_events"])
+# Share of the never-saw-a-product loss that sits in this block.
+total_lost_discovery = total_sessions - view_item_n
+ua_lost_share = (int(ua["sessions"]) - int(ua["view_item"])) / total_lost_discovery * 100
+# Session-length test: unattributed share and view rate per size bucket.
+_bucket_order = ["1–3", "4–5", "6–8", "9–15", "16+"]
+_sz = _dq_size.pivot(index="size_bucket", columns="attributed",
+                     values=["sessions", "view_item"]).reindex(_bucket_order)
+dq_buckets = pd.DataFrame({
+    "bucket":      _bucket_order,
+    "sessions":    (_sz[("sessions", True)] + _sz[("sessions", False)]).astype(int).values,
+    "ua_pct":      (_sz[("sessions", False)] / (_sz[("sessions", True)] + _sz[("sessions", False)]) * 100).values,
+    "view_ua":     (_sz[("view_item", False)] / _sz[("sessions", False)] * 100).values,
+    "view_at":     (_sz[("view_item", True)]  / _sz[("sessions", True)]  * 100).values,
+})
+# Device mix: share of each device's sessions that are unattributed.
+_dv = _dq_dev.pivot(index="dev", columns="attributed", values="sessions")
+_dv_ua_pct = (_dv[False] / (_dv[False] + _dv[True]) * 100)
+ua_dev_min, ua_dev_max = float(_dv_ua_pct.min()), float(_dv_ua_pct.max())
+
+# Sensitivity funnel: attributed sessions only. NOT the primary view — removing
+# the block removes short sessions selectively, so every rate is biased upward.
+def _funnel_stats(r):
+    return {"sessions": int(r["sessions"]),
+            "view_pct": r["view_item"] / r["sessions"] * 100,
+            "view_to_cart": r["add_to_cart"] / r["view_item"] * 100 if r["view_item"] else float("nan"),
+            "cart_to_checkout": r["begin_checkout"] / r["add_to_cart"] * 100 if r["add_to_cart"] else float("nan"),
+            "checkout_to_purchase": r["purchase"] / r["begin_checkout"] * 100 if r["begin_checkout"] else float("nan"),
+            "cvr": r["purchase"] / r["sessions"] * 100,
+            "rev_per_session": r["revenue"] / r["sessions"]}
+sens_all = _funnel_stats(_dq_all.sum(numeric_only=True))
+sens_ex  = _funnel_stats(at)
+if sens_all["sessions"] != total_sessions:
+    print(f"  WARNING: data-quality sessions ({sens_all['sessions']:,}) != funnel sessions ({total_sessions:,})")
+
+# ── Event quality: view_item / add_to_cart are list-level events here ─────────
+vi_q, atc_q = evq_raw.loc["view_item"], evq_raw.loc["add_to_cart"]
+vi_avg_items   = float(vi_q["avg_items"])
+vi_multi_pct   = vi_q["multi_item_events"] / vi_q["events"] * 100
+atc_avg_items  = float(atc_q["avg_items"])
+atc_one_pct    = atc_q["one_carted_item_events"] / atc_q["events"] * 100
+carting_all    = int(ttc_df["carting_sessions"].iloc[0])
+cart_same_ts   = int(ttc_df["cart_same_ts_as_view"].iloc[0])
+cart_same_ts_pct = cart_same_ts / carting_all * 100 if carting_all else 0.0
+cart_within_1s = int(ttc_df["cart_within_1s_after_view"].iloc[0])
+cart_no_view   = int(ttc_df["cart_before_or_without_view"].iloc[0])
+conv_same_ts_pct = (int(ttc_df["converting_same_ts"].iloc[0])
+                    / int(ttc_df["converting_sessions"].iloc[0]) * 100)
 
 # Shoppers ATC rate
 shoppers_atc = round(
@@ -696,25 +895,33 @@ view_item_n    = int(funnel_raw["step2_view_item"].iloc[0])
 purchase_n_raw = int(funnel_raw["step5_purchase"].iloc[0])
 view_to_purchase_rate = purchase_n_raw / view_item_n  # e.g. 2721/75261 ≈ 3.6%
 lift_5pp_purchases = round(lift_5pp_views * view_to_purchase_rate)
-lift_5pp_revenue   = round(lift_5pp_purchases * aov, 0)
+# Revenue per funnel purchase, not AOV: AOV excludes the purchases that record
+# no revenue, so multiplying it by a purchase count would overstate the total.
+lift_5pp_revenue   = round(lift_5pp_purchases * rev_per_purchase, 0)
 # Sensitivity: incremental traffic almost always converts below the existing
 # average, so the headline figure is an optimistic upper bound. Model 50% / 75%.
 lift_5pp_rev_50 = round(lift_5pp_revenue * 0.50, 0)
 lift_5pp_rev_75 = round(lift_5pp_revenue * 0.75, 0)
 
 # ── Executive summary (computed from real numbers) ────────────────────────────
-bottleneck = "product discovery" if view_rate < 30 else "product-to-cart conversion"
-discovery_severity = "critical" if view_rate < 20 else "significant"
-
+# One story, stated with numbers: the largest absolute loss is discovery; after
+# that, product views convert to carts at a category-dependent rate, and most
+# carts never reach checkout. Each clause is computed, so the sentence stays
+# true if the window or dataset changes.
+_disc_is_biggest = biggest_drop_idx == 0
 exec_summary = (
-    f"Of {total_sessions:,} sessions analysed across {date_label}, only "
-    f"<strong>{overall_cvr:.1f}%</strong> completed a purchase. "
-    f"The {discovery_severity} bottleneck is <strong>{bottleneck}</strong>: "
-    f"just <strong>{view_rate:.0f}%</strong> of sessions ever reached a product page — "
-    f"meaning the majority of traffic was lost before the buying experience even began. "
-    f"Once users did view a product, checkout conversion was comparatively stronger, "
-    f"suggesting the site's core problem is getting users to products, "
-    f"not the purchase flow itself."
+    f"Of {total_sessions:,} sessions in {date_label}, "
+    f"<strong>{overall_cvr:.2f}%</strong> ended in a purchase. "
+    + (f"The largest loss is <strong>discovery</strong>: only "
+       f"<strong>{view_rate:.1f}%</strong> of sessions saw any product, so "
+       f"{total_lost_discovery:,} sessions ({100-view_rate:.1f}%) left without seeing one. "
+       if _disc_is_biggest else
+       f"The largest absolute loss is between <strong>{biggest_drop_step}</strong> and the "
+       f"next step ({biggest_drop_n:,} sessions). ")
+    + f"Of sessions that did see products, <strong>{atc_from_view:.1f}%</strong> added one "
+      f"to cart — a rate that varies by category, a separate merchandising problem. "
+      f"Once a cart exists, <strong>{cart_abandon_pct:.0f}%</strong> of carting sessions "
+      f"({carted_n - checkout_n:,} of {carted_n:,}) never begin checkout."
 )
 
 # ── Priority label ─────────────────────────────────────────────────────────────
@@ -722,7 +929,7 @@ if view_rate < 30:
     priority_label = "Top-of-Funnel: Product Discovery"
     priority_color = "#dc2626"
 elif atc_from_view < 40:
-    priority_label = "Mid-Funnel: Product Page Conversion"
+    priority_label = "Mid-Funnel: Product → Cart Conversion"
     priority_color = "#ea580c"
 else:
     priority_label = "Retention & Lifecycle"
@@ -753,25 +960,22 @@ fig_funnel.update_layout(
 )
 
 # Time-to-convert chart
-ttc_steps = pd.DataFrame({
-    "transition": ["Session → View Item","View Item → Add to Cart","Add to Cart → Checkout","Checkout → Purchase"],
-    "median_hours": [float(ttc_df["p50_s_to_v"].iloc[0]),
-                     float(ttc_df["p50_v_to_c"].iloc[0]),
-                     float(ttc_df["p50_c_to_k"].iloc[0]),
-                     float(ttc_df["p50_k_to_p"].iloc[0])],
-})
-fig_ttc = px.bar(ttc_steps, x="transition", y="median_hours",
-                 color="median_hours", color_continuous_scale="Blues",
-                 text=[f"{v:.2f}h" for v in ttc_steps["median_hours"]],
-                 labels={"median_hours":"Median hours","transition":""})
-fig_ttc.update_traces(
-    texttemplate="%{text}",
-    textposition="outside",
-    hovertemplate="<b>%{x}</b><br>Median time: %{y:.2f} hours<extra></extra>",
-    marker_color="#4C78A8",  # solid single colour — no redundant colour encoding
-)
-fig_ttc.update_layout(height=360, showlegend=False, coloraxis_showscale=False,
+# Minutes, from plain Python lists (numpy arrays are binary-encoded by Plotly,
+# which previously needed a JS patch to display near-zero values correctly).
+_ttc_x = ["Session → View Products", "View Products → Add to Cart",
+          "Add to Cart → Checkout", "Checkout → Purchase"]
+_ttc_y = [float(ttc_df[c].iloc[0]) for c in ("p50_s_to_v", "p50_v_to_c", "p50_c_to_k", "p50_k_to_p")]
+_ttc_txt = [f"{v:.1f} min" for v in _ttc_y]
+_ttc_txt[1] += " †"           # explained in the note: identical timestamps
+fig_ttc = go.Figure(go.Bar(
+    x=_ttc_x, y=_ttc_y, text=_ttc_txt, texttemplate="%{text}", textposition="outside",
+    marker_color="#4C78A8",
+    hovertemplate="<b>%{x}</b><br>Median: %{y:.1f} min<extra></extra>",
+))
+fig_ttc.update_layout(height=360, showlegend=False,
                       paper_bgcolor="white", plot_bgcolor="white",
+                      yaxis=dict(title="Median minutes (converting sessions)",
+                                 range=[0, max(_ttc_y) * 1.25 if max(_ttc_y) else 1]),
                       margin=dict(t=20, b=10), xaxis_tickangle=-15)
 
 # Cohort heatmap — zmax=12 so 0-12% retention range uses full colour spectrum
@@ -808,7 +1012,7 @@ fig_channel = go.Figure(go.Bar(
     texttemplate="%{text}", textposition="outside",
     marker_color=["#dc2626" if v < view_rate - 5 else "#4C78A8" for v in _ch_plot["view_pct"]],
     customdata=[[f"{int(s):,}", f"{sh:.1f}%"] for s, sh in zip(_ch_plot["sessions"], _ch_plot["share"])],
-    hovertemplate="<b>%{y}</b><br>Session → View Item: %{x:.1f}%"
+    hovertemplate="<b>%{y}</b><br>Sessions that saw a product: %{x:.1f}%"
                   "<br>Sessions: %{customdata[0]} (%{customdata[1]} of total)<extra></extra>",
 ))
 fig_channel.add_vline(x=view_rate, line_dash="dash", line_color="#6b7280",
@@ -818,7 +1022,7 @@ fig_channel.update_layout(
     height=max(260, 46 * len(_ch_plot) + 80), showlegend=False,
     paper_bgcolor="white", plot_bgcolor="white",
     margin=dict(l=10, r=40, t=30, b=10),
-    xaxis=dict(title="% of sessions reaching a product page",
+    xaxis=dict(title="% of sessions that saw a product",
                range=[0, max(float(_ch_plot["view_pct"].max()), view_rate) * 1.2]),
 )
 
@@ -834,19 +1038,19 @@ fig_category = go.Figure(go.Bar(
                   for v in category_tbl["atc_pct"]],
     customdata=[[f"{int(v):,}", f"{int(k):,}"] for v, k in
                 zip(category_tbl["viewing_sessions"], category_tbl["carts_at_stake"])],
-    hovertemplate="<b>%{y}</b><br>View → Cart: %{x:.1f}%"
+    hovertemplate="<b>%{y}</b><br>Seen → carted: %{x:.1f}%"
                   "<br>Viewing sessions: %{customdata[0]}"
                   "<br>Carts at stake: %{customdata[1]}<extra></extra>",
 ))
 fig_category.add_vline(x=category_benchmark, line_dash="dash", line_color="#6b7280",
-                       annotation_text=f"benchmark {category_benchmark:.1f}%",
+                       annotation_text=f"site average {category_benchmark:.1f}%",
                        annotation_position="top")
 fig_category.update_layout(
     height=max(300, 30 * len(category_tbl) + 80), showlegend=False,
     paper_bgcolor="white", plot_bgcolor="white",
     margin=dict(l=10, r=40, t=30, b=10),
     yaxis=dict(autorange="reversed"),   # lowest rate at the top
-    xaxis=dict(title="% of viewing sessions that add that category to cart",
+    xaxis=dict(title="% of sessions that saw the category and carted an item from it",
                range=[0, (float(category_tbl["atc_pct"].max()) if len(category_tbl) else 10) * 1.2]),
 )
 
@@ -898,14 +1102,18 @@ else:
 print("Assembling dashboard...")
 
 wk1_display   = f"{avg_wk1}%" if avg_wk1 else "—"
-wk1_warn      = avg_wk1 is not None and avg_wk1 < 10
+# Compared against the planning target, not an external benchmark: no sourced
+# industry figure exists for calendar-week return on this kind of store.
+wk1_warn      = avg_wk1 is not None and avg_wk1 < WK1_TARGET
 retention_flag = "⚠️" if wk1_warn else ""
+WK1_DEFINITION = ("the share of a weekly cohort with any session in the next calendar "
+                  "week (Monday-anchored) — so a user's return window is 1 to 13 days, not exactly 7")
 
 # ── Channel narrative (E1) — the conclusion flips on the 10pp threshold ───────
 if channel_is_driver:
     channel_verdict = (
         f"<p><strong>Traffic mix is a real driver.</strong> The share of sessions "
-        f"reaching a product page ranges from <strong>{worst_view_pct:.1f}%</strong> "
+        f"that saw a product ranges from <strong>{worst_view_pct:.1f}%</strong> "
         f"({worst_view_channel}) to <strong>{best_view_pct:.1f}%</strong> "
         f"({best_view_channel}) — a <strong>{channel_view_spread:.1f}pp</strong> spread. "
         f"Part of the discovery loss is who is arriving, not only what they find.</p>"
@@ -913,7 +1121,7 @@ if channel_is_driver:
         f"landing experience promises versus what the site shows on arrival.</p>"
     )
     channel_rec_problem = (
-        f"Product-page reach varies by <strong>{channel_view_spread:.1f}pp</strong> across "
+        f"Product reach varies by <strong>{channel_view_spread:.1f}pp</strong> across "
         f"channels — from {worst_view_pct:.1f}% ({worst_view_channel}) to "
         f"{best_view_pct:.1f}% ({best_view_channel}). Acquisition quality explains part of "
         f"the discovery gap, so budget and landing pages are levers alongside navigation."
@@ -923,20 +1131,20 @@ elif channel_borderline:
         f"<p><strong>Leaning site, not traffic — but borderline.</strong> The spread "
         f"between {worst_view_channel} ({worst_view_pct:.1f}%) and {best_view_channel} "
         f"({best_view_pct:.1f}%) is <strong>{channel_view_spread:.1f}pp</strong>: under "
-        f"the 10pp threshold, but close to it. Every channel still loses the large "
-        f"majority of its visitors before a product page, so navigation / discovery "
-        f"remains the leading explanation rather than a settled one.</p>"
+        f"the 10pp threshold, but close to it. Every channel still loses at least "
+        f"{100-best_view_pct:.0f}% of its sessions before they see a product, so navigation / "
+        f"discovery remains the leading explanation rather than a settled one.</p>"
         f"<p>Cheap check before committing to a navigation redesign: review the "
         f"{worst_view_channel} landing pages against what its ads promise.</p>"
     )
 else:
     channel_verdict = (
         f"<p><strong>The leak is on the site, not in the traffic.</strong> No "
-        f"channel is an outlier on product-page reach: the spread between "
+        f"channel is an outlier on product reach: the spread between "
         f"{best_view_channel} ({best_view_pct:.1f}%) and {worst_view_channel} "
         f"({worst_view_pct:.1f}%) is <strong>{channel_view_spread:.1f}pp</strong>, "
-        f"well under the 10pp threshold — and every channel loses the large majority "
-        f"of its visitors before a product page.</p>"
+        f"well under the 10pp threshold — and every channel loses at least "
+        f"{100-best_view_pct:.0f}% of its sessions before they see a product.</p>"
         f"<p>This supports the navigation / discovery hypothesis: reallocating "
         f"acquisition budget would not fix a loss that happens equally to every "
         f"visitor once they land.</p>"
@@ -945,17 +1153,18 @@ if notset_view_pct is not None and notset_share >= 1:
     # Only claim "the average sits under every channel" when that is literally true.
     _below_all = (notset_view_pct < view_rate < float(_ch_rank["view_pct"].min()))
     channel_verdict += (
-        f"<p><strong>Unattributed sessions.</strong> {notset_share:.1f}% of sessions carry "
-        f"no session-level medium; they reach a product page at "
-        f"<strong>{notset_view_pct:.1f}%</strong> and are excluded from the spread."
-        + (f" That drags the site average ({view_rate:.1f}%) "
-           f"below every named channel — this block is worth "
-           f"investigating on its own." if _below_all else "")
-        + "</p>"
+        f"<p><strong>(not set)</strong> = sessions with no session-level medium "
+        f"({notset_share:.1f}% of sessions). They see a product in "
+        f"<strong>{notset_view_pct:.1f}%</strong> of cases and are excluded from the spread. "
+        f"This is a tagging gap that hits short sessions hardest, not a channel"
+        + (f"; it is why the site average ({view_rate:.1f}%) sits below every named channel"
+           if _below_all else "")
+        + " (see Data quality above). Because short sessions drop into (not set), "
+          "every named channel's rate is somewhat inflated.</p>"
     )
 if not channel_is_driver:
     channel_rec_problem = (
-        f"Product-page reach is within <strong>{channel_view_spread:.1f}pp</strong> across "
+        f"Product reach is within <strong>{channel_view_spread:.1f}pp</strong> across "
         f"channels{' (just under the 10pp threshold)' if channel_borderline else ''}, "
         f"so discovery is mainly not a traffic-quality problem. Channels still differ "
         f"in <em>value</em>, though — revenue per session is the remaining reason to segment."
@@ -966,7 +1175,10 @@ if top_rev_channel:
         f"(${top_rev_rps:,.2f})."
     )
 channel_basis_note = (
-    "Channel = the session's own medium, taken from <code>event_params</code>."
+    "Channel = the session's own medium, taken from <code>event_params</code>; "
+    "<code>(none)</code> is GA4's label for direct traffic. The 10pp decision threshold "
+    f"is an analyst-set assumption ({10/view_rate*100:.0f}% of the site's {view_rate:.1f}% "
+    "product-view rate), not an industry standard."
     if channel_dim == "session_medium" else
     f"Session-level medium covered only {session_medium_coverage*100:.0f}% of sessions, "
     "so channel falls back to the user's <strong>first-touch</strong> medium "
@@ -978,7 +1190,7 @@ channel_basis_note = (
 # impact is sized from the category gap, the lever the analysis points to.
 _cart_to_purchase = purchase_n / int(funnel_raw["step3_add_to_cart"].iloc[0])
 _cat_orders  = round(category_top3_at_stake * _cart_to_purchase)
-_cat_revenue = round(_cat_orders * aov, 0)
+_cat_revenue = round(_cat_orders * rev_per_purchase, 0)
 if channel_is_driver:
     rec3_impact = (
         "Reallocating even 20% of acquisition budget from low- to high-converting "
@@ -987,23 +1199,24 @@ if channel_is_driver:
 elif category_top_targets:
     rec3_impact = (
         f"Lifting the top {len(category_top_targets)} categories to the "
-        f"{category_benchmark:.1f}% benchmark adds ~<strong>{category_top3_at_stake:,}</strong> "
+        f"{category_benchmark:.1f}% site average adds ~<strong>{category_top3_at_stake:,}</strong> "
         f"carting sessions. At today's {_cart_to_purchase*100:.1f}% cart → purchase rate and "
-        f"${aov:,.0f} AOV that is roughly <strong>~{_cat_orders:,} orders / "
+        f"${rev_per_purchase:,.2f} revenue per purchase that is roughly <strong>~{_cat_orders:,} orders / "
         f"${_cat_revenue:,.0f}</strong> — an upper bound, since category carts and "
         f"session purchases are not one-to-one."
     )
 else:
-    rec3_impact = ("No category sits meaningfully below the benchmark, so the remaining "
+    rec3_impact = ("No category sits meaningfully below the site average, so the remaining "
                    "lever is weighting spend towards revenue per session.")
 
 # ── Category narrative (E2) ───────────────────────────────────────────────────
 if category_top_targets:
     _targets = ", ".join(f"<strong>{c}</strong>" for c in category_top_targets)
     category_verdict = (
-        f"<p>Ranked by <strong>carts at stake</strong> — extra carting sessions if a "
-        f"category merely converted at the {category_benchmark:.1f}% benchmark — the "
-        f"audit should start with {_targets}. Together they account for "
+        f"<p>Ranked by <strong>carts at stake</strong> — the extra carting sessions a "
+        f"category would gain if it converted at the {category_benchmark:.1f}% site "
+        f"average (all ranked categories pooled) — the audit should start with "
+        f"{_targets}. Together they account for "
         f"<strong>{category_top3_at_stake:,}</strong> of the "
         f"<strong>{category_total_at_stake:,}</strong> carts at stake across all "
         f"ranked categories.</p>"
@@ -1013,10 +1226,100 @@ if category_top_targets:
     )
 else:
     category_verdict = (
-        "<p>No ranked category sits meaningfully below the benchmark — the "
-        "view → cart drop is spread evenly across the catalogue rather than "
-        "concentrated in specific product pages.</p>"
+        "<p>No ranked category sits meaningfully below the site average — the "
+        "seen → carted drop is spread evenly across the catalogue rather than "
+        "concentrated in specific categories.</p>"
     )
+
+# ── Data-quality callout ──────────────────────────────────────────────────────
+# Stated near the top because three of these facts change how the headline
+# numbers may be read. Every figure is computed in this run.
+dq_bucket_rows = "\n".join(
+    f'<tr><td class="dev-name">{r.bucket} events</td><td>{int(r.sessions):,}</td>'
+    f'<td>{r.ua_pct:.1f}%</td><td>{r.view_ua:.1f}%</td><td>{r.view_at:.1f}%</td></tr>'
+    for r in dq_buckets.itertuples()
+)
+def _sens_row(label, key, fmt):
+    return (f'<tr><td class="dev-name">{label}</td>'
+            f'<td class="dev-key">{fmt.format(sens_all[key])}</td>'
+            f'<td>{fmt.format(sens_ex[key])}</td></tr>')
+dq_sens_rows = "\n".join([
+    _sens_row("Sessions", "sessions", "{:,}"),
+    _sens_row("Saw a product", "view_pct", "{:.1f}%"),
+    _sens_row("Saw → carted", "view_to_cart", "{:.1f}%"),
+    _sens_row("Cart → checkout", "cart_to_checkout", "{:.1f}%"),
+    _sens_row("Checkout → purchase", "checkout_to_purchase", "{:.1f}%"),
+    _sens_row("Session → purchase", "cvr", "{:.2f}%"),
+    _sens_row("Revenue / session", "rev_per_session", "${:,.2f}"),
+])
+
+data_quality_html = f"""
+  <p class="section-label">Data quality — read before the numbers</p>
+  <div class="card dq-card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <h4 class="dq-h">1 · A quarter of sessions have no channel tag — a tagging gap, not bots</h4>
+        <p><strong>{ua_sessions:,} sessions ({ua_share:.1f}%)</strong> carry no session-level
+        <code>medium</code> on any event. In channel tables they appear as
+        <code>(not set)</code>. They see a product in only <strong>{ua_view_pct:.1f}%</strong>
+        of cases (attributed: {at_view_pct:.1f}%) and account for
+        <strong>{ua_lost_share:.0f}%</strong> of the {total_lost_discovery:,} sessions that
+        never see a product.</p>
+        <p>They don't look like bots: {ua_pv_pct:.0f}% have a <code>page_view</code>
+        (attributed: {at_pv_pct:.0f}%), and {f"every device has the same unattributed share ({ua_dev_min:.1f}%)" if f"{ua_dev_min:.1f}" == f"{ua_dev_max:.1f}" else f"the unattributed share barely varies by device ({ua_dev_min:.1f}–{ua_dev_max:.1f}%)"}.
+        They are <em>short</em>: median
+        {ua_med_ev} events and {ua_med_eng:.0f}s engaged, against {at_med_ev} events and
+        {at_med_eng:.0f}s. The tag sits on only some events, so the fewer events a
+        session has, the likelier it has none. <strong>At the same session length, view
+        rates are close</strong> (table): the low rate is a session-length effect, not a
+        different kind of traffic.</p>
+        <p><strong>So all sessions stay the primary view.</strong> Dropping the block would
+        remove short sessions selectively and flatter every rate. The right-hand column is a
+        sensitivity check only.</p>
+      </div>
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Session length</th><th>Sessions</th><th>Unattributed</th>
+            <th>Saw product · unattr.</th><th>· attributed</th></tr></thead>
+          <tbody>
+{dq_bucket_rows}
+          </tbody>
+        </table>
+        <table class="dev-table" style="margin-top:22px">
+          <thead><tr><th>Funnel</th><th>All sessions · primary</th>
+            <th>Excl. (not set) · biased up</th></tr></thead>
+          <tbody>
+{dq_sens_rows}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col dq-foot" style="gap:28px">
+      <div>
+        <h4 class="dq-h">2 · "View item" means "saw products", usually on a listing</h4>
+        <p>{vi_multi_pct:.0f}% of <code>view_item</code> events carry several products
+        (avg {vi_avg_items:.1f}), which makes them list impressions, not product-page views.
+        So this page counts sessions that <em>saw</em> products, not ones that opened a
+        product page.
+        <code>add_to_cart</code> also fires from listings, with the whole list attached (avg
+        {atc_avg_items:.0f} items); only the item with a quantity was carted
+        ({atc_one_pct:.0f}% of events have exactly one), and category figures use that item
+        only.</p>
+      </div>
+      <div>
+        <h4 class="dq-h">3 · Revenue covers funnel purchases only</h4>
+        <p>The funnel counts a purchase only if the session went through every step in order
+        (<em>sequential</em>). That gives {purchase_n:,} purchases and
+        ${total_revenue:,.0f}. {orders_no_rev:,} of them record no revenue, so the
+        ${aov:,.2f} AOV averages the {orders_with_rev:,} that do, and revenue per purchase is
+        ${rev_per_purchase:,.2f}. Across all sessions, {all_purch_sess:,} include a purchase
+        (${all_revenue:,.0f}). Of the {all_purch_sess - purchase_n:,} left out,
+        {purch_no_cart:,} have no add-to-cart in that session, which usually means the cart
+        was filled in an earlier visit.</p>
+      </div>
+    </div>
+  </div>
+"""
 
 html = f"""<!DOCTYPE html>
 <html lang="en">
@@ -1177,6 +1480,13 @@ html = f"""<!DOCTYPE html>
                    line-height: 1.65; }}
   .brief-body hr {{ border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }}
 
+  /* Data-quality callout */
+  .dq-card {{ border-left: 5px solid #d97706; }}
+  .dq-card p {{ font-size: 0.85rem; color: #374151; line-height: 1.65; margin-bottom: 10px; }}
+  .dq-h {{ font-size: 0.9rem; font-weight: 700; color: #111827; margin-bottom: 8px; }}
+  .dq-foot {{ margin-top: 22px; padding-top: 18px; border-top: 1px solid #f3f4f6; }}
+  .dq-card .dev-table th {{ white-space: normal; }}
+
   /* Two-col utility */
   .two-col {{ display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }}
   @media (max-width: 720px) {{ .two-col {{ grid-template-columns: 1fr; }} }}
@@ -1232,6 +1542,8 @@ html = f"""<!DOCTYPE html>
     <p>{exec_summary}</p>
   </div>
 
+{data_quality_html}
+
   <!-- ── KPIs ───────────────────────────────────────────────────────────── -->
   <p class="section-label">Key Metrics · {date_label}</p>
   <div class="kpi-grid">
@@ -1252,13 +1564,15 @@ html = f"""<!DOCTYPE html>
     </div>
     <div class="kpi">
       <div class="kpi-label">Avg Order Value</div>
-      <div class="kpi-value">${aov:,.0f}</div>
-      <div class="kpi-sub">median ${median_order:,.0f} · {purchase_n:,} orders</div>
+      <div class="kpi-value">${aov:,.2f}</div>
+      <div class="kpi-sub">${total_revenue:,.0f} ÷ {orders_with_rev:,} orders with revenue
+      ({orders_no_rev:,} of {purchase_n:,} purchases record none) · median ${median_order:,.0f}</div>
     </div>
     <div class="kpi {'warn' if wk1_warn else ''}">
-      <div class="kpi-label">Week-1 Retention {retention_flag}</div>
+      <div class="kpi-label">Week-1 Return {retention_flag}</div>
       <div class="kpi-value">{wk1_display}</div>
-      <div class="kpi-sub">{"⚠ below 10% benchmark" if wk1_warn else "users returning after first session"}</div>
+      <div class="kpi-sub">return in the next calendar week ·
+      {f"below the {WK1_TARGET:.0f}% planning target (an assumption)" if wk1_warn else f"planning target {WK1_TARGET:.0f}% (an assumption)"}</div>
     </div>
   </div>
 
@@ -1269,66 +1583,67 @@ html = f"""<!DOCTYPE html>
     <div class="finding">
       <div class="finding-num">Finding 01 · Biggest drop</div>
       <div class="finding-stat red">{view_rate:.0f}%</div>
-      <div class="finding-title">of sessions ever view a product</div>
+      <div class="finding-title">of sessions ever see a product</div>
       <div class="finding-body">
-        <strong>{100-view_rate:.0f}%</strong> of sessions — that's
-        <strong>{total_sessions - view_item_n:,} visits</strong> — leave
-        without ever reaching a product page. This is the single largest loss
-        in the funnel and the highest-leverage opportunity. In a SaaS context,
-        this maps to users who log in but never navigate to a core feature.
+        <strong>{100-view_rate:.0f}%</strong> of sessions —
+        <strong>{total_lost_discovery:,} visits</strong> — end without seeing a
+        single product. This is the largest absolute loss in the funnel.
+        {ua_lost_share:.0f}% of it sits in very short sessions with no channel tag (see Data
+        quality). In a SaaS context, this maps to users who log in but never
+        navigate to a core feature.
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 02 · Once engaged, buyers are decisive</div>
-      <div class="finding-stat blue">{shoppers_atc:.0f}%</div>
-      <div class="finding-title">of product viewers add to cart</div>
+      <div class="finding-num">Finding 02 · Seeing products rarely leads to a cart</div>
+      <div class="finding-stat amber">{atc_from_view:.0f}%</div>
+      <div class="finding-title">of sessions that saw products added one to cart</div>
       <div class="finding-body">
-        When users do reach a product page, <strong>{shoppers_atc:.0f}%</strong>
-        add to cart — but measured across <em>all</em> sessions the add-to-cart
-        rate is only <strong>{atc_all_sessions:.1f}%</strong>. The same behaviour
-        looks {shoppers_atc/atc_all_sessions:.0f}× weaker once non-viewers are
-        included, and that entire difference is the discovery gap — not a product
-        page problem.
+        {100-atc_from_view:.0f}% of sessions that saw products
+        ({view_item_n - carted_n:,}) added nothing to cart. This is a separate problem from
+        discovery, and it depends on the category. Per-category rates run from
+        {float(category_tbl["atc_pct"].min()):.0f}% to {float(category_tbl["atc_pct"].max()):.0f}%
+        (Product Category, below).
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 03 · Conversion is fast</div>
-      <div class="finding-stat green">{total_ttc_hrs:.1f}h</div>
-      <div class="finding-title">median session-to-purchase time</div>
+      <div class="finding-num">Finding 03 · Most carts are abandoned</div>
+      <div class="finding-stat red">{cart_abandon_pct:.0f}%</div>
+      <div class="finding-title">of carting sessions never begin checkout</div>
       <div class="finding-body">
-        Purchasing sessions complete the full journey in
-        <strong>{total_ttc_hrs:.1f} hours</strong> at the median.
-        This indicates low deliberation friction — users who intend to buy,
-        buy quickly. No urgent need to invest in cart-abandonment recovery flows.
+        Only <strong>{cart_to_checkout:.0f}%</strong> of sessions with a cart
+        ({checkout_n:,} of {carted_n:,}) start checkout, and
+        <strong>{checkout_to_purch:.0f}%</strong> of those finish the purchase.
+        {"This is the largest loss once a shopper has shown purchase intent. " if cart_abandon_pct > 100 - checkout_to_purch else ""}How fast
+        <em>converters</em> buy (median {total_ttc_min:.0f} min) says nothing about the
+        sessions that abandon.
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 04 · Retention is the second problem</div>
+      <div class="finding-num">Finding 04 · Few visitors come back</div>
       <div class="finding-stat {'amber' if wk1_warn else 'blue'}">{wk1_display}</div>
       <div class="finding-title">Week-1 return rate</div>
       <div class="finding-body">
-        Only <strong>{wk1_display}</strong> of users return in the week after
-        their first session — well below the ~20% benchmark for healthy
-        e-commerce cohorts. Acquisition campaigns may be driving
-        low-intent traffic, or there is no post-visit re-engagement in place.
+        On average <strong>{wk1_display}</strong> of a weekly cohort has a session in
+        the next calendar week, against an {WK1_TARGET:.0f}% planning target (an
+        assumption, not an industry benchmark). This dataset cannot say whether
+        campaigns brought low-intent traffic or there was no post-visit
+        re-engagement.
       </div>
     </div>
 
 
     <div class="finding">
-      <div class="finding-num">Finding 05 · Revenue concentration</div>
-      <div class="finding-stat green">${aov:,.0f}</div>
-      <div class="finding-title">avg order value (${median_order:,.0f} median)</div>
+      <div class="finding-num">Finding 05 · Revenue</div>
+      <div class="finding-stat green">${total_revenue:,.0f}</div>
+      <div class="finding-title">from {purchase_n:,} funnel purchases</div>
       <div class="finding-body">
-        The gap between mean (${aov:,.0f}) and median (${median_order:,.0f})
-        suggests some high-value orders are pulling the average up. Total
-        revenue in the window: <strong>${total_revenue:,.0f}</strong> from
-        <strong>{purchase_n:,} purchasing sessions</strong>.
-        Revenue per session by channel is broken out in the Acquisition
-        Channel section below.
+        ${rev_per_purchase:,.2f} per purchase. {orders_no_rev:,} purchases record no
+        revenue, so AOV over the {orders_with_rev:,} that do is
+        <strong>${aov:,.2f}</strong> (median ${median_order:,.0f}). Revenue per session
+        by channel is broken out in the Acquisition Channel section below.
       </div>
     </div>
 
@@ -1339,9 +1654,9 @@ html = f"""<!DOCTYPE html>
       <div class="finding-body">
         Purchase conversion differs by only <strong>{device_gap:.2f} percentage
         points</strong> between desktop, mobile and tablet. A mobile-first
-        redesign — the intuitive response to a {overall_cvr:.1f}% conversion rate — would not
-        have moved the number. Effort belongs in discovery and lifecycle, not
-        device-specific checkout work.
+        redesign — the intuitive response to a {overall_cvr:.2f}% conversion rate — would not
+        have moved the number. Effort belongs in discovery, carts and lifecycle,
+        not device-specific work.
       </div>
     </div>
 
@@ -1355,24 +1670,29 @@ html = f"""<!DOCTYPE html>
       <div>
         <div class="insight-panel">
           <h4>What this shows</h4>
-          <p>Each session is counted at a step only if it completed all prior steps
-          <em>in order within the same session</em> — matching how GA4 UI
-          calculates funnel conversion.</p>
-          <p>The <strong>largest absolute loss</strong> is at
-          <strong>{biggest_drop_step}</strong>:
-          {biggest_drop_n:,} sessions dropped here.</p>
-          <p>The step-over-step rates after View Item are comparatively
-          healthy — the problem is upstream, not in the checkout flow.</p>
+          <p><strong>Sequential</strong>: a session counts at a step only if it
+          completed every earlier step <em>in order, within the same session</em>, as
+          a closed funnel does in the GA4 UI.</p>
+          <p>The <strong>largest absolute loss</strong> is between
+          <strong>{biggest_drop_step}</strong> and
+          <strong>{funnel_df.loc[biggest_drop_idx + 1, "step"]}</strong>:
+          {biggest_drop_n:,} sessions ({funnel_df.loc[biggest_drop_idx + 1, "drop_off"]:.1f}%).</p>
+          <p>After that, step pass rates are
+          <strong>{atc_from_view:.1f}%</strong> (saw products → cart),
+          <strong>{cart_to_checkout:.1f}%</strong> (cart → checkout) and
+          <strong>{checkout_to_purch:.1f}%</strong> (checkout → purchase). Fewer
+          sessions are lost at these steps, but the drop-off rates are just as steep:
+          {cart_abandon_pct:.0f}% of carts never reach checkout.</p>
         </div>
         <div class="opportunity">
           <h4>Revenue opportunity</h4>
-          <p>If session → view_item improves by just <strong>5 percentage points</strong> ({view_rate:.0f}% → {view_rate+5:.0f}%):</p>
+          <p>If the share of sessions that see a product rises by <strong>5 percentage points</strong> ({view_rate:.1f}% → {view_rate+5:.1f}%):</p>
           <span class="big-number">~{lift_5pp_purchases:,} extra orders</span>
           <p>~<strong>${lift_5pp_revenue:,.0f}</strong> additional revenue
-          at current AOV of ${aov:,.0f}.</p>
+          at ${rev_per_purchase:,.2f} per funnel purchase.</p>
           <p style="font-size:0.78rem;opacity:0.85;margin-top:8px">
           <strong>Sensitivity.</strong> This assumes incremental sessions convert at
-          the same {view_to_purchase_rate*100:.1f}% view→purchase rate as today's
+          the same {view_to_purchase_rate*100:.1f}% saw-products → purchase rate as today's
           traffic — an optimistic upper bound, since marginal traffic typically
           converts below average. At 75% of that rate:
           <strong>${lift_5pp_rev_75:,.0f}</strong>. At 50%:
@@ -1391,12 +1711,20 @@ html = f"""<!DOCTYPE html>
       <div>{chart_div(fig_ttc, "chart-ttc")}</div>
       <div class="insight-panel">
         <h4>Conclusion</h4>
-        <p>Converting sessions complete the journey in
-        <strong>{total_ttc_hrs:.1f} hours</strong> (median).
-        The checkout → purchase step is near-instant, indicating
-        no meaningful payment friction for users who reach this stage.</p>
-        <p>Cart abandonment flows and checkout UX are lower priority
-        than driving more users to product pages in the first place.</p>
+        <p>Sessions that convert take a median <strong>{total_ttc_min:.0f} minutes</strong>
+        from session start to purchase, with checkout → purchase taking
+        {_ttc_y[3]:.1f} min. That describes buyers only. It doesn't show why
+        {cart_abandon_pct:.0f}% of carts never reach checkout.</p>
+        <p><strong>† Partly a tracking signal, not shopper behaviour.</strong> The median
+        saw-products → cart gap is only {_ttc_y[1]:.1f} min, and
+        <strong>{cart_same_ts_pct:.0f}%</strong> of carting sessions
+        ({cart_same_ts:,} of {carting_all:,}; {conv_same_ts_pct:.0f}% of converting ones)
+        log their first add-to-cart at the <em>exact</em> microsecond of their first
+        product impression. {f"{cart_within_1s:,}" if cart_within_1s else "None"} fall
+        strictly between zero and one second, and
+        {cart_no_view:,} carts come before, or without, any product impression. Together
+        with the list-sized item arrays (Data quality, point 2), this points to
+        quick-add buttons on listing pages firing both events at once.</p>
       </div>
     </div>
   </div>
@@ -1410,7 +1738,7 @@ html = f"""<!DOCTYPE html>
           <thead>
             <tr>
               <th>Device</th><th>Sessions</th><th>Share</th>
-              <th>View Item</th><th>Add to Cart</th><th>Purchase</th>
+              <th>Saw Product</th><th>Add to Cart</th><th>Purchase</th>
             </tr>
           </thead>
           <tbody>
@@ -1425,7 +1753,7 @@ html = f"""<!DOCTYPE html>
         mobile and tablet. The funnel leaks at the same rate regardless of how
         users reach the site.</p>
         <p><strong>This is reported precisely because it is a null result.</strong>
-        The intuitive next step after seeing a {overall_cvr:.1f}% conversion rate is a
+        The intuitive next step after seeing a {overall_cvr:.2f}% conversion rate is a
         mobile-first redesign. The data says that work would not have moved the
         number — the leak is upstream of device, in discovery.</p>
         <p class="caveat-note">Shown as a table, not a chart: three series
@@ -1451,8 +1779,8 @@ html = f"""<!DOCTYPE html>
     <table class="dev-table" style="margin-top:20px">
       <thead>
         <tr>
-          <th>Channel</th><th>Sessions</th><th>Share</th><th>→ View Item</th>
-          <th>View → Cart</th><th>Purchase</th><th>Rev / Session</th>
+          <th>Channel</th><th>Sessions</th><th>Share</th><th>Saw Product</th>
+          <th>Saw → Cart</th><th>Purchase</th><th>Rev / Session</th>
         </tr>
       </thead>
       <tbody>
@@ -1471,11 +1799,13 @@ html = f"""<!DOCTYPE html>
     <div class="chart-insight">
       <div>{chart_div(fig_category, "chart-category")}</div>
       <div class="insight-panel">
-        <h4>Where to start the product-page audit</h4>
+        <h4>Where to start the merchandising audit</h4>
         {category_verdict}
-        <p class="caveat-note">A session counts for a category only if it added an
-        item <em>of that category</em> after viewing it, so rates are stricter than
-        the {shoppers_atc:.0f}% shoppers figure and rows are not additive.
+        <p class="caveat-note">A session "saw" a category when a product from it appeared
+        in a viewed product list. It counts as carted only if the item actually carted
+        (the one with a quantity, not the rest of the list) is from that category and
+        was carted after the first sighting. So rates are stricter than the
+        {shoppers_atc:.0f}% shoppers figure, and rows are not additive.
         Categories with fewer than {MIN_CATEGORY_VIEWS:,} viewing sessions
         ({category_excluded_n} excluded) and <code>(not set)</code>
         ({category_notset_share:.1f}% of category views) are not ranked.
@@ -1488,8 +1818,8 @@ html = f"""<!DOCTYPE html>
     <table class="dev-table" style="margin-top:20px">
       <thead>
         <tr>
-          <th>Category</th><th>Viewing sessions</th><th>Carting sessions</th>
-          <th>View → Cart</th><th>Carts at stake</th>
+          <th>Category</th><th>Sessions that saw it</th><th>Carting sessions</th>
+          <th>Seen → Carted</th><th>Carts at stake</th>
         </tr>
       </thead>
       <tbody>
@@ -1505,20 +1835,22 @@ html = f"""<!DOCTYPE html>
       <div class="insight-panel">
         <h4>What this shows</h4>
         <p>Each row is a group of users who had their <em>first ever session</em>
-        in that week. The cells show what % of them returned in each
-        subsequent week.</p>
+        in that week. The cells show what % of them had a session in each
+        later calendar week.</p>
+        <p><strong>Week-1 return</strong> is {WK1_DEFINITION}.</p>
         <p>Avg Week-1 return: <strong>{wk1_display}</strong><br>
         Avg Week-2 return: <strong>{f"{avg_wk2}%" if avg_wk2 else "—"}</strong></p>
         <h4 style="margin-top:16px">What this means</h4>
-        <p>Week-1 retention of <strong>{wk1_display}</strong> is
-        {"significantly below the ~20% benchmark" if wk1_warn else "approaching benchmark levels"}.
-        Most users who visit once do not come back.</p>
+        <p>Week-1 return of <strong>{wk1_display}</strong> is
+        {f"{WK1_TARGET - avg_wk1:.1f}pp below" if wk1_warn else "at or above"} the
+        {WK1_TARGET:.0f}% planning target (an assumption, not an external benchmark).
+        {100 - avg_wk1:.0f}% of a typical cohort shows no session the following week.</p>
         <p><strong>Possible causes</strong> (this dataset cannot tell them
         apart): no triggered email or push re-engagement, traffic from
         low-intent channels, or a first session that didn't reach a product.</p>
-        <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
-        the % of activated users who return within 7 days. The intervention
-        is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
+        <p><strong>In SaaS terms:</strong> the closest analogue is D7 retention,
+        but this is a calendar-week measure, so it is not directly comparable. The
+        usual intervention is lifecycle emails or in-app nudges on day 2–3.</p>
         <h4 style="margin-top:16px">Data quality — two boundary effects</h4>
         {partial_cohort_note}
         <p><strong>2 · Recent cohorts are right-censored.</strong> A user who
@@ -1544,11 +1876,10 @@ html = f"""<!DOCTYPE html>
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p><strong>{100-view_rate:.0f}% of sessions never reach a product page</strong> —
-        that's <strong>{total_sessions - view_item_n:,} visits</strong> lost before the
-        buying experience even begins. This is the single largest drop in the funnel and
-        the highest-leverage opportunity. In a SaaS context, this maps to users who log in
-        but never navigate to a core feature.</p>
+        <p><strong>{100-view_rate:.0f}% of sessions never see a product</strong> —
+        <strong>{total_lost_discovery:,} visits</strong> lost before shopping begins.
+        This is the largest absolute loss in the funnel. In a SaaS context, it maps to
+        users who log in but never navigate to a core feature.</p>
       </div>
 
       <div class="rec-section">
@@ -1561,42 +1892,43 @@ html = f"""<!DOCTYPE html>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>A <strong>5pp improvement</strong> in session → view_item rate would drive
-        approximately <strong>~{lift_5pp_purchases:,} additional orders</strong> and
-        ~<strong>${lift_5pp_revenue:,.0f}</strong> in additional revenue at current AOV.</p>
-        <div class="metric">session → view_item rate (target: &gt;30%)</div>
+        <p>A <strong>5pp improvement</strong> in the share of sessions that see a product
+        would drive approximately <strong>~{lift_5pp_purchases:,} additional orders</strong>
+        and ~<strong>${lift_5pp_revenue:,.0f}</strong> (upper bound; see sensitivity above).</p>
+        <div class="metric">share of sessions that see a product (target: {view_rate+5:.1f}% — the +5pp planning scenario, an assumption)</div>
       </div>
     </div>
 
     <div class="rec">
       <span class="rec-priority p2">Priority 2 · Short-term</span>
-      <h4>Build a re-engagement lifecycle</h4>
+      <h4>Recover carts and build re-engagement</h4>
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p>Week-1 retention of <strong>{wk1_display}</strong> means the vast majority of
-        acquired users visit once and never return — well below the ~20% benchmark for
-        healthy e-commerce cohorts. This dataset cannot show whether any re-engagement
+        <p><strong>{cart_abandon_pct:.0f}% of carting sessions</strong>
+        ({carted_n - checkout_n:,} of {carted_n:,}) never begin checkout, and Week-1 return
+        is <strong>{wk1_display}</strong> ({100 - avg_wk1:.0f}% of a cohort has no session the
+        next calendar week). This dataset cannot show whether any re-engagement
         (email, push, remarketing) was running; if none was, it is the first thing to test.</p>
       </div>
 
       <div class="rec-section">
         <div class="rec-section-label">Recommended Actions</div>
-        <p>Launch a triggered email or push sequence:
-        <strong>Day 1</strong> (product browsed but not purchased),
-        <strong>Day 3</strong> (cart abandonment reminder),
-        <strong>Day 7</strong> (win-back with incentive).
-        Measure Week-1 and Week-2 return rates per cohort separately to isolate the effect.</p>
+        <p>Launch a triggered email or push sequence for identifiable users:
+        <strong>within 24h</strong> a cart reminder for sessions that carted but did not
+        check out, <strong>day 3</strong> a reminder of products they browsed, and
+        <strong>day 7</strong> a win-back offer. Test it against a holdout group and measure cart →
+        checkout and Week-1 / Week-2 return per cohort.</p>
       </div>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>Lifting Week-1 retention from today's <strong>{wk1_display}</strong> average to
+        <p>Lifting Week-1 return from today's <strong>{wk1_display}</strong> average to
         <strong>{WK1_TARGET:.0f}%</strong> would have brought back
         ~<strong>{wk1_extra_users:,}</strong> more users in their second week, across the
         {wk1_n_cohorts} full cohorts ({wk1_base_users:,} first-time users) observed in this
         window — repeat sessions that need no extra acquisition spend.</p>
-        <div class="metric">Week-1 cohort retention rate (target: &gt;{WK1_TARGET:.0f}%)</div>
+        <div class="metric">cart → checkout rate · Week-1 return (target: {WK1_TARGET:.0f}%, a planning assumption)</div>
       </div>
     </div>
 
@@ -1611,17 +1943,17 @@ html = f"""<!DOCTYPE html>
 
       <div class="rec-section">
         <div class="rec-section-label">Recommended Actions</div>
-        <p>Start the product-page audit with
+        <p>Start the merchandising audit with
         {", ".join(category_top_targets) if category_top_targets else "the lowest view → cart categories"}
-        (see Product Category above): review content, pricing and trust signals on
-        their highest-traffic pages. On the channel side, weight acquisition spend
+        (see Product Category above): review how their products are presented in
+        listings, including images, price and stock. On the channel side, weight acquisition spend
         towards revenue per session, not session volume.</p>
       </div>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
         <p>{rec3_impact}</p>
-        <div class="metric">revenue per session by channel · view → cart in target categories</div>
+        <div class="metric">revenue per session by channel · seen → carted in target categories</div>
       </div>
     </div>
 
@@ -1682,8 +2014,8 @@ html = f"""<!DOCTYPE html>
             dashboard.html → Stakeholders
           </p>
           <p style="margin-top:14px;font-size:0.83rem;color:#374151">
-            Change <code>DATE_START</code>, <code>DATE_END</code> and <code>DATASET</code>
-            at the top of the script and run
+            Set <code>GA4_DATASET</code>, <code>GA4_DATE_START</code> and
+            <code>GA4_DATE_END</code> (read by <code>config.py</code>) and run
             <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>
             to recompute every query, chart and number on this page. Re-run notebook
             Section 10 to refresh the brief. The script step can be scheduled; the
@@ -1735,7 +2067,7 @@ html = f"""<!DOCTYPE html>
           <td>add_to_cart</td>
           <td>Feature first use — attempting the core action</td>
           <td>Activation attempt rate</td>
-          <td class="rate">{shoppers_atc:.1f}% of product viewers</td>
+          <td class="rate">{shoppers_atc:.1f}% of sessions that saw products</td>
         </tr>
         <tr>
           <td>begin_checkout</td>
@@ -1750,8 +2082,8 @@ html = f"""<!DOCTYPE html>
           <td class="rate">{overall_cvr:.2f}% of all sessions</td>
         </tr>
         <tr>
-          <td>Week-1 retention</td>
-          <td>D7 retention — returning within 7 days of first login</td>
+          <td>Week-1 return</td>
+          <td>Closest to D7 retention — but this is calendar-week return (1–13 days), not exactly 7 days</td>
           <td>Early retention</td>
           <td class="rate">{wk1_display} avg across cohorts</td>
         </tr>
@@ -1764,8 +2096,9 @@ html = f"""<!DOCTYPE html>
     <strong>Methodology</strong><br>
     Session-scoped funnel: each row is a unique (user_pseudo_id, ga_session_id) pair extracted
     from event_params. Sequential constraint: a session is counted at step N only if it reached
-    step N−1 first within the same session. This matches GA4 UI funnel behaviour and avoids
-    inflating conversion by attributing past-purchase behaviour to new sessions.<br><br>
+    step N−1 first within the same session. This matches a closed funnel in the GA4 UI and avoids
+    inflating conversion by attributing past-purchase behaviour to new sessions. The cost is
+    that purchases whose cart was filled in an earlier session are not counted (see Data quality).<br><br>
     <strong>Data note</strong><br>
     {"Source: Google's public obfuscated GA4 e-commerce sample dataset. Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention methodology are valid." if IS_PUBLIC_SAMPLE else f"Source: <code>{_html.escape(DATASET)}</code>, {DATE_START}–{DATE_END}."}
     The same SQL applies directly to any GA4 BigQuery export.<br><br>
@@ -1774,55 +2107,10 @@ html = f"""<!DOCTYPE html>
 
 </div>
 
-<script>
-(function() {{
-  function patchCharts() {{
-
-    // Cohort heatmap needs no patch — colourscale, zmin/zmax, gap handling and
-    // hover template are all set in Python at render time.
-
-    // TTC chart — Plotly's float64 bdata encoding corrupts near-zero values,
-    // so restyle with the authoritative medians straight from the query.
-    var ttcDiv = document.getElementById('chart-ttc');
-    if (ttcDiv && ttcDiv.data && ttcDiv.data.length) {{
-      var p50sv = {float(ttc_df["p50_s_to_v"].iloc[0])};
-      var p50vc = {float(ttc_df["p50_v_to_c"].iloc[0])};
-      var p50ck = {float(ttc_df["p50_c_to_k"].iloc[0])};
-      var p50kp = {float(ttc_df["p50_k_to_p"].iloc[0])};
-      // Clamp near-zero values so bars remain visible
-      var yVals = [p50sv, Math.max(p50vc, 0.001), p50ck, p50kp];
-      var labels = [p50sv+'h', p50vc < 0.001 ? '< 1 sec' : p50vc+'h', p50ck+'h', p50kp+'h'];
-      Plotly.restyle('chart-ttc', {{
-        x: [['Session → View Item','View Item → Add to Cart','Add to Cart → Checkout','Checkout → Purchase']],
-        y: [yVals],
-        text: [labels],
-        texttemplate: ['%{{text}}'],
-        'marker.color': ['#4C78A8'],
-        hovertemplate: ['<b>%{{x}}</b><br>Median time: %{{customdata}}<extra></extra>'],
-        customdata: [[
-          '~' + Math.round(p50sv*60) + ' min',
-          p50vc < 0.001 ? '< 1 sec (decisive shoppers add to cart immediately)' : '~' + Math.round(p50vc*60) + ' min',
-          '~' + Math.round(p50ck*60) + ' min',
-          '~' + Math.round(p50kp*60) + ' min'
-        ]]
-      }}, [0]);
-      Plotly.relayout('chart-ttc', {{
-        'xaxis.tickangle': -15,
-        'yaxis.title.text': 'Median hours',
-        coloraxis: null
-      }});
-    }}
-  }}
-
-  if (document.readyState === 'complete') {{ patchCharts(); }}
-  else {{ window.addEventListener('load', patchCharts); }}
-}})();
-</script>
-
 </body>
 </html>"""
 
 OUTPUT.write_text(html, encoding="utf-8")
 size_kb = OUTPUT.stat().st_size / 1024
-print(f"\nDone → {OUTPUT}  ({size_kb:.0f} KB)")
+print(f"\nDone → {OUTPUT.name}  ({size_kb:.0f} KB)")
 print("Open dashboard.html in any browser — no Python required.")
