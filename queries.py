@@ -192,8 +192,12 @@ FROM (
     COUNTIF(revenue > 0) AS orders_with_revenue,
     ROUND(SUM(revenue),2) AS total_revenue,
     ROUND(AVG(IF(revenue > 0, revenue, NULL)),2) AS avg_order_value,
-    ROUND(APPROX_QUANTILES(IF(revenue > 0, revenue, NULL),100)[OFFSET(50)],2) AS median_order_value
-  FROM sessions WHERE s5
+    ROUND(ANY_VALUE(med_order),2) AS median_order_value
+  FROM (
+    -- Exact median (PERCENTILE_CONT ignores the NULLs, i.e. zero-revenue orders)
+    SELECT *, PERCENTILE_CONT(IF(revenue > 0, revenue, NULL), 0.5) OVER () AS med_order
+    FROM sessions WHERE s5
+  )
 ) c CROSS JOIN allp
 """
 
@@ -220,6 +224,20 @@ f AS (
          WHEN n_events <= 8 THEN '6–8' WHEN n_events <= 15 THEN '9–15'
          ELSE '16+' END AS size_bucket
   FROM sessions WHERE s1
+),
+-- Exact medians, one window per grouping set (PERCENTILE_CONT is analytic-only,
+-- so it cannot sit in the GROUP BY below); the SELECT picks the matching one.
+g AS (
+  SELECT *,
+    PERCENTILE_CONT(engaged_s, 0.5) OVER (PARTITION BY attributed)              AS eng_a,
+    PERCENTILE_CONT(engaged_s, 0.5) OVER (PARTITION BY size_bucket, attributed) AS eng_sa,
+    PERCENTILE_CONT(engaged_s, 0.5) OVER (PARTITION BY dev, attributed)         AS eng_da,
+    PERCENTILE_CONT(engaged_s, 0.5) OVER (PARTITION BY visitor)                 AS eng_v,
+    PERCENTILE_DISC(n_events, 0.5)  OVER (PARTITION BY attributed)              AS ev_a,
+    PERCENTILE_DISC(n_events, 0.5)  OVER (PARTITION BY size_bucket, attributed) AS ev_sa,
+    PERCENTILE_DISC(n_events, 0.5)  OVER (PARTITION BY dev, attributed)         AS ev_da,
+    PERCENTILE_DISC(n_events, 0.5)  OVER (PARTITION BY visitor)                 AS ev_v
+  FROM f
 )
 SELECT
   CASE WHEN GROUPING(size_bucket) = 0 THEN 'size'
@@ -231,9 +249,15 @@ SELECT
   COUNTIF(s4) AS begin_checkout, COUNTIF(s5) AS purchase,
   ROUND(SUM(IF(s5, IFNULL(revenue, 0), 0)), 2) AS revenue,
   COUNTIF(n_page_view > 0) AS with_page_view,
-  APPROX_QUANTILES(engaged_s, 2)[OFFSET(1)] AS median_engaged_s,
-  APPROX_QUANTILES(n_events, 2)[OFFSET(1)] AS median_events
-FROM f
+  CASE WHEN GROUPING(size_bucket) = 0 THEN ANY_VALUE(eng_sa)
+       WHEN GROUPING(dev) = 0 THEN ANY_VALUE(eng_da)
+       WHEN GROUPING(visitor) = 0 THEN ANY_VALUE(eng_v)
+       ELSE ANY_VALUE(eng_a) END AS median_engaged_s,
+  CASE WHEN GROUPING(size_bucket) = 0 THEN ANY_VALUE(ev_sa)
+       WHEN GROUPING(dev) = 0 THEN ANY_VALUE(ev_da)
+       WHEN GROUPING(visitor) = 0 THEN ANY_VALUE(ev_v)
+       ELSE ANY_VALUE(ev_a) END AS median_events
+FROM g
 GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed), (visitor))
 """
 
@@ -250,18 +274,28 @@ cart AS (
     COUNTIF(ts_v IS NULL OR ts_c < ts_v) AS cart_before_or_without_view,
     COUNTIF(ts_c > ts_v AND ts_c - ts_v < 1000000) AS cart_within_1s_after_view
   FROM sessions WHERE ts_c IS NOT NULL
+),
+-- Exact medians (PERCENTILE_CONT), so every run gives the same figures
+conv AS (
+  SELECT ts_c, ts_v,
+    PERCENTILE_CONT((ts_v-ts_s)/60000000.0, 0.5) OVER () AS m_s_to_v,
+    PERCENTILE_CONT((ts_c-ts_v)/60000000.0, 0.5) OVER () AS m_v_to_c,
+    PERCENTILE_CONT((ts_k-ts_c)/60000000.0, 0.5) OVER () AS m_c_to_k,
+    PERCENTILE_CONT((ts_p-ts_k)/60000000.0, 0.5) OVER () AS m_k_to_p,
+    PERCENTILE_CONT((ts_p-ts_s)/60000000.0, 0.5) OVER () AS m_total
+  FROM sessions WHERE s5
 )
 SELECT t.*, cart.*
 FROM (
   SELECT
-    ROUND(APPROX_QUANTILES((ts_v-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_s_to_v,
-    ROUND(APPROX_QUANTILES((ts_c-ts_v)/60000000.0,100)[OFFSET(50)],1) AS p50_v_to_c,
-    ROUND(APPROX_QUANTILES((ts_k-ts_c)/60000000.0,100)[OFFSET(50)],1) AS p50_c_to_k,
-    ROUND(APPROX_QUANTILES((ts_p-ts_k)/60000000.0,100)[OFFSET(50)],1) AS p50_k_to_p,
-    ROUND(APPROX_QUANTILES((ts_p-ts_s)/60000000.0,100)[OFFSET(50)],1) AS p50_total,
+    ROUND(ANY_VALUE(m_s_to_v),1) AS p50_s_to_v,
+    ROUND(ANY_VALUE(m_v_to_c),1) AS p50_v_to_c,
+    ROUND(ANY_VALUE(m_c_to_k),1) AS p50_c_to_k,
+    ROUND(ANY_VALUE(m_k_to_p),1) AS p50_k_to_p,
+    ROUND(ANY_VALUE(m_total),1) AS p50_total,
     COUNT(*) AS converting_sessions,
     COUNTIF(ts_c = ts_v) AS converting_same_ts
-  FROM sessions WHERE s5
+  FROM conv
 ) t CROSS JOIN cart
 """
 
@@ -403,8 +437,7 @@ agg AS (
   GROUP BY item_category
 ),
 -- Median listed price of the category's products as seen in product lists
--- (a confounder for seen → carted). Exact PERCENTILE_CONT, not APPROX_QUANTILES,
--- so repeated runs and the notebook and dashboard always agree.
+-- (a confounder for seen → carted). Exact PERCENTILE_CONT, like every median here.
 price AS (
   SELECT DISTINCT item_category,
     PERCENTILE_CONT(price, 0.5) OVER (PARTITION BY item_category) AS median_price

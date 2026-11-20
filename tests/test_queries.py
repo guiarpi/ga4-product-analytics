@@ -78,3 +78,10 @@ def test_category_query_counts_only_the_carted_item():
 @pytest.mark.parametrize("entry, first", [("session_start", "sessions"), ("view_item", "view_item")])
 def test_funnel_sql_entry_names_the_first_count(entry, first):
     assert f"COUNT(*) AS {first}" in queries.funnel_sql(*W, entry=entry)
+
+
+def test_medians_are_exact():
+    # APPROX_QUANTILES varies between uncached runs, so a regenerated page could
+    # show a different median with no change to the data or code.
+    for name, sql in all_query_sql().items():
+        assert "APPROX_QUANTILES" not in sql, name
