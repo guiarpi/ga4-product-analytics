@@ -3980,6 +3980,10 @@ return Plotly;
   .dev-table .dev-name { text-align: left; font-weight: 600; color: #111827;
                           text-transform: capitalize; }
   .dev-table .dev-key { font-weight: 700; color: #1d4ed8; }
+  .dev-table .ci { color: #6b7280; font-size: 0.78rem; white-space: nowrap; }
+  .flag-below { color: #c2410c; font-weight: 700; }
+  .flag-above { color: #1d4ed8; font-weight: 700; }
+  .flag-neutral { color: #9ca3af; }
 
   /* Opportunity box */
   .opportunity { background: #eff6ff; border: 1px solid #bfdbfe;
@@ -4034,9 +4038,24 @@ return Plotly;
   .brief-body h3:first-child { border-top: none; padding-top: 0; margin-top: 0; }
   .brief-body p  { font-size: 0.87rem; color: #374151; margin-bottom: 10px;
                    line-height: 1.7; }
-  .brief-body li { font-size: 0.87rem; color: #374151; margin: 5px 0 5px 20px;
+  .brief-body li { font-size: 0.87rem; color: #374151; margin: 5px 0;
                    line-height: 1.65; }
   .brief-body hr { border: none; border-top: 1px solid #e5e7eb; margin: 16px 0; }
+  .brief-body ul, .brief-body ol { margin: 4px 0 10px; padding-left: 22px; }
+  .brief-body li ul, .brief-body li ol { margin: 4px 0 2px; }
+  .brief-body h4 { font-size: 0.92rem; font-weight: 700; color: #111827; margin: 14px 0 6px; }
+  .brief-body code { font-size: 0.8rem; background: #f3f4f6; padding: 1px 5px; border-radius: 4px; }
+  .appendix summary { cursor: pointer; font-weight: 700; color: #111827; list-style: revert; }
+  .appendix .appendix-sub { display: block; font-weight: 400; font-size: 0.78rem;
+                            color: #6b7280; margin: 4px 0 0 18px; }
+  .appendix .appendix-body { margin-top: 18px; }
+
+  /* Data-quality callout */
+  .dq-card { border-left: 5px solid #d97706; }
+  .dq-card p { font-size: 0.85rem; color: #374151; line-height: 1.65; margin-bottom: 10px; }
+  .dq-h { font-size: 0.9rem; font-weight: 700; color: #111827; margin-bottom: 8px; }
+  .dq-foot { margin-top: 22px; padding-top: 18px; border-top: 1px solid #f3f4f6; }
+  .dq-card .dev-table th { white-space: normal; }
 
   /* Two-col utility */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }
@@ -4056,7 +4075,7 @@ return Plotly;
     <span>Session-scoped · Sequential conversion</span>
     <span>Nov 2020 – Jan 2021</span>
     <span>GA4 public e-commerce sample · BigQuery</span>
-    <span>Generated 2026-11-12</span>
+    <span>Generated 2026-11-20</span>
   </div>
 </div>
 
@@ -4090,8 +4109,86 @@ return Plotly;
   <p class="section-label">Executive Summary</p>
   <div class="exec-card">
     <div class="priority-tag">Primary bottleneck: Top-of-Funnel: Product Discovery</div>
-    <p>Of 354,857 sessions analysed across Nov 2020 – Jan 2021, only <strong>0.8%</strong> completed a purchase. The significant bottleneck is <strong>product discovery</strong>: just <strong>21%</strong> of sessions ever reached a product page — meaning the majority of traffic was lost before the buying experience even began. Once users did view a product, checkout conversion was comparatively stronger, suggesting the site's core problem is getting users to products, not the purchase flow itself.</p>
+    <p>Of 354,857 sessions in Nov 2020 – Jan 2021, <strong>0.77%</strong> ended in a purchase. The largest loss is <strong>discovery</strong>: only <strong>21.2%</strong> of sessions saw any product, so 279,596 sessions (78.8%) left without seeing one. Of sessions that did see products, <strong>19.8%</strong> added one to cart — a rate that varies by category, a separate merchandising problem. Once a cart exists, <strong>65%</strong> of carting sessions (9,665 of 14,870) never begin checkout.</p>
   </div>
+
+
+  <p class="section-label">Data quality — read before the numbers</p>
+  <div class="card dq-card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <h4 class="dq-h">1 · A quarter of sessions have no channel tag — a tagging gap, not bots</h4>
+        <p><strong>92,892 sessions (26.2%)</strong> carry no session-level
+        <code>medium</code> on any event. In channel tables they appear as
+        <code>(not set)</code>. They see a product in only <strong>6.7%</strong>
+        of cases (attributed: 26.4%) and account for
+        <strong>31%</strong> of the 279,596 sessions that
+        never see a product.</p>
+        <p>They don't look like bots: 94% have a <code>page_view</code>
+        (attributed: 92%), and every device has the same unattributed share (26.2%).
+        They are <em>short</em>: median
+        4 events and 2s engaged, against 6 events and
+        13s. The tag sits on only some events, so the fewer events a
+        session has, the likelier it has none. <strong>At the same session length, view
+        rates are close</strong> (table): the low rate is a session-length effect, not a
+        different kind of traffic.</p>
+        <p><strong>So all sessions stay the primary view.</strong> Dropping the block would
+        remove short sessions selectively and flatter every rate. The right-hand column is a
+        sensitivity check only.</p>
+      </div>
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Session length</th><th>Sessions</th><th>Unattributed</th>
+            <th>Saw product · unattr.</th><th>· attributed</th></tr></thead>
+          <tbody>
+<tr><td class="dev-name">1–3 events</td><td>64,233</td><td>38.0%</td><td>1.5%</td><td>1.3%</td></tr>
+<tr><td class="dev-name">4–5 events</td><td>131,833</td><td>37.5%</td><td>5.1%</td><td>7.3%</td></tr>
+<tr><td class="dev-name">6–8 events</td><td>61,201</td><td>25.0%</td><td>12.1%</td><td>17.9%</td></tr>
+<tr><td class="dev-name">9–15 events</td><td>44,714</td><td>7.5%</td><td>38.7%</td><td>34.0%</td></tr>
+<tr><td class="dev-name">16+ events</td><td>52,876</td><td>0.6%</td><td>53.1%</td><td>76.5%</td></tr>
+          </tbody>
+        </table>
+        <table class="dev-table" style="margin-top:22px">
+          <thead><tr><th>Funnel</th><th>All sessions · primary</th>
+            <th>Excl. (not set) · biased up</th></tr></thead>
+          <tbody>
+<tr><td class="dev-name">Sessions</td><td class="dev-key">354,857</td><td>261,965</td></tr>
+<tr><td class="dev-name">Saw a product</td><td class="dev-key">21.2%</td><td>26.4%</td></tr>
+<tr><td class="dev-name">Saw → carted</td><td class="dev-key">19.8%</td><td>20.7%</td></tr>
+<tr><td class="dev-name">Cart → checkout</td><td class="dev-key">35.0%</td><td>36.4%</td></tr>
+<tr><td class="dev-name">Checkout → purchase</td><td class="dev-key">52.3%</td><td>52.3%</td></tr>
+<tr><td class="dev-name">Session → purchase</td><td class="dev-key">0.77%</td><td>1.04%</td></tr>
+<tr><td class="dev-name">Revenue / session</td><td class="dev-key">$0.55</td><td>$0.74</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col dq-foot" style="gap:28px">
+      <div>
+        <h4 class="dq-h">2 · "View item" means "saw products", usually on a listing</h4>
+        <p>60% of <code>view_item</code> events carry several products
+        (avg 7.1), which makes them list impressions, not product-page views.
+        So this page counts sessions that <em>saw</em> products, not ones that opened a
+        product page.
+        <code>add_to_cart</code> also fires from listings, with the whole list attached (avg
+        11 items); only the item with a quantity was carted
+        (64% of events have exactly one), and category figures use that item
+        only.</p>
+      </div>
+      <div>
+        <h4 class="dq-h">3 · Revenue covers funnel purchases only</h4>
+        <p>The funnel counts a purchase only if the session went through every step in order
+        (<em>sequential</em>). That gives 2,721 purchases and
+        $193,678. 260 of them record no revenue, so the
+        $78.70 AOV averages the 2,461 that do, and revenue per purchase is
+        $71.18. Across all sessions, 4,848 include a purchase
+        ($362,165). Of the 2,127 left out,
+        2,000 have no add-to-cart in that session, which usually means the cart
+        was filled in an earlier visit.</p>
+      </div>
+    </div>
+  </div>
+
 
   <!-- ── KPIs ───────────────────────────────────────────────────────────── -->
   <p class="section-label">Key Metrics · Nov 2020 – Jan 2021</p>
@@ -4108,18 +4205,20 @@ return Plotly;
     </div>
     <div class="kpi">
       <div class="kpi-label">Session → Purchase</div>
-      <div class="kpi-value">0.80%</div>
+      <div class="kpi-value">0.77%</div>
       <div class="kpi-sub">end-to-end conversion rate</div>
     </div>
     <div class="kpi">
       <div class="kpi-label">Avg Order Value</div>
-      <div class="kpi-value">$79</div>
-      <div class="kpi-sub">median $55 · 2,721 orders</div>
+      <div class="kpi-value">$78.70</div>
+      <div class="kpi-sub">$193,678 ÷ 2,461 orders with revenue
+      (260 of 2,721 purchases record none) · median $55</div>
     </div>
     <div class="kpi warn">
-      <div class="kpi-label">Week-1 Retention ⚠️</div>
+      <div class="kpi-label">Week-1 Return ⚠️</div>
       <div class="kpi-value">4.2%</div>
-      <div class="kpi-sub">⚠ below 10% benchmark</div>
+      <div class="kpi-sub">return in the next calendar week ·
+      below the 8% planning target (an assumption)</div>
     </div>
   </div>
 
@@ -4130,66 +4229,67 @@ return Plotly;
     <div class="finding">
       <div class="finding-num">Finding 01 · Biggest drop</div>
       <div class="finding-stat red">21%</div>
-      <div class="finding-title">of sessions ever view a product</div>
+      <div class="finding-title">of sessions ever see a product</div>
       <div class="finding-body">
-        <strong>79%</strong> of sessions — that's
-        <strong>279,596 visits</strong> — leave
-        without ever reaching a product page. This is the single largest loss
-        in the funnel and the highest-leverage opportunity. In a SaaS context,
-        this maps to users who log in but never navigate to a core feature.
+        <strong>79%</strong> of sessions —
+        <strong>279,596 visits</strong> — end without seeing a
+        single product. This is the largest absolute loss in the funnel.
+        31% of it sits in very short sessions with no channel tag (see Data
+        quality). In a SaaS context, this maps to users who log in but never
+        navigate to a core feature.
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 02 · Once engaged, buyers are decisive</div>
-      <div class="finding-stat blue">20%</div>
-      <div class="finding-title">of product viewers add to cart</div>
+      <div class="finding-num">Finding 02 · Seeing products rarely leads to a cart</div>
+      <div class="finding-stat amber">20%</div>
+      <div class="finding-title">of sessions that saw products added one to cart</div>
       <div class="finding-body">
-        When users do reach a product page, <strong>20%</strong>
-        add to cart — but measured across <em>all</em> sessions the add-to-cart
-        rate is only <strong>4.2%</strong>. The same behaviour
-        looks 5× weaker once non-viewers are
-        included, and that entire difference is the discovery gap — not a product
-        page problem.
+        80% of sessions that saw products
+        (60,391) added nothing to cart. This is a separate problem from
+        discovery, and it depends on the category. Per-category rates run from
+        13% to 41%
+        (Product Category, below).
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 03 · Conversion is fast</div>
-      <div class="finding-stat green">0.3h</div>
-      <div class="finding-title">median session-to-purchase time</div>
+      <div class="finding-num">Finding 03 · Most carts are abandoned</div>
+      <div class="finding-stat red">65%</div>
+      <div class="finding-title">of carting sessions never begin checkout</div>
       <div class="finding-body">
-        Purchasing sessions complete the full journey in
-        <strong>0.3 hours</strong> at the median.
-        This indicates low deliberation friction — users who intend to buy,
-        buy quickly. No urgent need to invest in cart-abandonment recovery flows.
+        Only <strong>35%</strong> of sessions with a cart
+        (5,205 of 14,870) start checkout, and
+        <strong>52%</strong> of those finish the purchase.
+        This is the largest loss once a shopper has shown purchase intent. How fast
+        <em>converters</em> buy (median 16 min) says nothing about the
+        sessions that abandon.
       </div>
     </div>
 
     <div class="finding">
-      <div class="finding-num">Finding 04 · Retention is the second problem</div>
+      <div class="finding-num">Finding 04 · Few visitors come back</div>
       <div class="finding-stat amber">4.2%</div>
       <div class="finding-title">Week-1 return rate</div>
       <div class="finding-body">
-        Only <strong>4.2%</strong> of users return in the week after
-        their first session — well below the ~20% benchmark for healthy
-        e-commerce cohorts. Acquisition campaigns may be driving
-        low-intent traffic, or there is no post-visit re-engagement in place.
+        On average <strong>4.2%</strong> of a weekly cohort has a session in
+        the next calendar week, against an 8% planning target (an
+        assumption, not an industry benchmark). This dataset cannot say whether
+        campaigns brought low-intent traffic or there was no post-visit
+        re-engagement.
       </div>
     </div>
 
 
     <div class="finding">
-      <div class="finding-num">Finding 05 · Revenue concentration</div>
-      <div class="finding-stat green">$79</div>
-      <div class="finding-title">avg order value ($55 median)</div>
+      <div class="finding-num">Finding 05 · Revenue</div>
+      <div class="finding-stat green">$193,678</div>
+      <div class="finding-title">from 2,721 funnel purchases</div>
       <div class="finding-body">
-        The gap between mean ($79) and median ($55)
-        suggests some high-value orders are pulling the average up. Total
-        revenue in the window: <strong>$193,678</strong> from
-        <strong>2,721 purchasing sessions</strong>.
-        Revenue per session by channel is broken out in the Acquisition
-        Channel section below.
+        $71.18 per purchase. 260 purchases record no
+        revenue, so AOV over the 2,461 that do is
+        <strong>$78.70</strong> (median $55). Revenue per session
+        by channel is broken out in the Acquisition Channel section below.
       </div>
     </div>
 
@@ -4199,10 +4299,12 @@ return Plotly;
       <div class="finding-title">spread in purchase rate across all devices</div>
       <div class="finding-body">
         Purchase conversion differs by only <strong>0.05 percentage
-        points</strong> between desktop, mobile and tablet. A mobile-first
-        redesign — the intuitive response to a 0.8% conversion rate — would not
-        have moved the number. Effort belongs in discovery and lifecycle, not
-        device-specific checkout work.
+        points</strong> between desktop, mobile and tablet
+        (not statistically significant,
+        χ² p = 0.259). A mobile-first
+        redesign — the intuitive response to a 0.77% conversion rate — would not
+        have moved the number. Effort belongs in discovery, carts and lifecycle,
+        not device-specific work.
       </div>
     </div>
 
@@ -4212,33 +4314,38 @@ return Plotly;
   <p class="section-label">Conversion Funnel — Session-Scoped · Sequential</p>
   <div class="card">
     <div class="chart-insight">
-      <div><div>                            <div id="chart-funnel" class="plotly-graph-div" style="height:420px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-funnel")) {                    Plotly.newPlot(                        "chart-funnel",                        [{"connector":{"line":{"color":"#e2e8f0","width":1}},"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSessions: %{x:,}\u003cbr\u003e% of start: %{percentInitial:.1%}\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#2c5282","#1e40af","#2563eb","#3b82f6","#60a5fa"],"line":{"color":"white","width":1}},"opacity":0.9,"textinfo":"value+percent initial","textposition":"auto","x":[354857,75261,14870,5205,2721],"y":["Session Start","View Item","Add to Cart","Begin Checkout","Purchase"],"type":"funnel"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"margin":{"l":20,"r":20,"t":10,"b":10},"height":420,"paper_bgcolor":"white","plot_bgcolor":"white","showlegend":false},                        {"responsive": true}                    )                };            </script>        </div></div>
+      <div><div>                            <div id="chart-funnel" class="plotly-graph-div" style="height:420px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-funnel")) {                    Plotly.newPlot(                        "chart-funnel",                        [{"connector":{"line":{"color":"#e2e8f0","width":1}},"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSessions: %{x:,}\u003cbr\u003e% of start: %{percentInitial:.1%}\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#2c5282","#1e40af","#2563eb","#3b82f6","#60a5fa"],"line":{"color":"white","width":1}},"opacity":0.9,"textinfo":"value+percent initial","textposition":"auto","x":[354857,75261,14870,5205,2721],"y":["Session Start","View Products","Add to Cart","Begin Checkout","Purchase"],"type":"funnel"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"margin":{"l":20,"r":20,"t":10,"b":10},"height":420,"paper_bgcolor":"white","plot_bgcolor":"white","showlegend":false},                        {"responsive": true}                    )                };            </script>        </div></div>
       <div>
         <div class="insight-panel">
           <h4>What this shows</h4>
-          <p>Each session is counted at a step only if it completed all prior steps
-          <em>in order within the same session</em> — matching how GA4 UI
-          calculates funnel conversion.</p>
-          <p>The <strong>largest absolute loss</strong> is at
-          <strong>Session Start</strong>:
-          279,596 sessions dropped here.</p>
-          <p>The step-over-step rates after View Item are comparatively
-          healthy — the problem is upstream, not in the checkout flow.</p>
+          <p><strong>Sequential</strong>: a session counts at a step only if it
+          completed every earlier step <em>in order, within the same session</em>, as
+          a closed funnel does in the GA4 UI.</p>
+          <p>The <strong>largest absolute loss</strong> is between
+          <strong>Session Start</strong> and
+          <strong>View Products</strong>:
+          279,596 sessions (78.8%).</p>
+          <p>After that, step pass rates are
+          <strong>19.8%</strong> (saw products → cart),
+          <strong>35.0%</strong> (cart → checkout) and
+          <strong>52.3%</strong> (checkout → purchase). Fewer
+          sessions are lost at these steps, but the drop-off rates are just as steep:
+          65% of carts never reach checkout.</p>
         </div>
         <div class="opportunity">
           <h4>Revenue opportunity</h4>
-          <p>If session → view_item improves by just <strong>5 percentage points</strong> (21% → 26%):</p>
+          <p>If the share of sessions that see a product rises by <strong>5 percentage points</strong> (21.2% → 26.2%):</p>
           <span class="big-number">~641 extra orders</span>
-          <p>~<strong>$50,447</strong> additional revenue
-          at current AOV of $79.</p>
+          <p>~<strong>$45,626</strong> additional revenue
+          at $71.18 per funnel purchase.</p>
           <p style="font-size:0.78rem;opacity:0.85;margin-top:8px">
           <strong>Sensitivity.</strong> This assumes incremental sessions convert at
-          the same 3.6% view→purchase rate as today's
+          the same 3.6% saw-products → purchase rate as today's
           traffic — an optimistic upper bound, since marginal traffic typically
           converts below average. At 75% of that rate:
-          <strong>$37,835</strong>. At 50%:
-          <strong>$25,224</strong>. Treat
-          <strong>$25,224–$50,447</strong> as the
+          <strong>$34,220</strong>. At 50%:
+          <strong>$22,813</strong>. Treat
+          <strong>$22,813–$45,626</strong> as the
           planning range.</p>
         </div>
       </div>
@@ -4249,15 +4356,23 @@ return Plotly;
   <p class="section-label">Time-to-Convert</p>
   <div class="card">
     <div class="two-col">
-      <div><div>                            <div id="chart-ttc" class="plotly-graph-div" style="height:360px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-ttc")) {                    Plotly.newPlot(                        "chart-ttc",                        [{"hovertemplate":"\u003cb\u003e%{x}\u003c\u002fb\u003e\u003cbr\u003eMedian time: %{y:.2f} hours\u003cextra\u003e\u003c\u002fextra\u003e","legendgroup":"","marker":{"color":"#4C78A8","coloraxis":"coloraxis","pattern":{"shape":""}},"name":"","orientation":"v","showlegend":false,"text":["0.02h","0.00h","0.11h","0.06h"],"textposition":"outside","x":["Session \u2192 View Item","View Item \u2192 Add to Cart","Add to Cart \u2192 Checkout","Checkout \u2192 Purchase"],"xaxis":"x","y":{"dtype":"f8","bdata":"exSuR+F6lD8AAAAAAAAAAClcj8L1KLw\u002fuB6F61G4rj8="},"yaxis":"y","type":"bar","texttemplate":"%{text}"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"xaxis":{"anchor":"y","domain":[0.0,1.0],"title":{"text":""},"tickangle":-15},"yaxis":{"anchor":"x","domain":[0.0,1.0],"title":{"text":"Median hours"}},"coloraxis":{"colorbar":{"title":{"text":"Median hours"}},"colorscale":[[0.0,"rgb(247,251,255)"],[0.125,"rgb(222,235,247)"],[0.25,"rgb(198,219,239)"],[0.375,"rgb(158,202,225)"],[0.5,"rgb(107,174,214)"],[0.625,"rgb(66,146,198)"],[0.75,"rgb(33,113,181)"],[0.875,"rgb(8,81,156)"],[1.0,"rgb(8,48,107)"]],"showscale":false},"legend":{"tracegroupgap":0},"margin":{"t":20,"b":10},"barmode":"relative","height":360,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
+      <div><div>                            <div id="chart-ttc" class="plotly-graph-div" style="height:360px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-ttc")) {                    Plotly.newPlot(                        "chart-ttc",                        [{"hovertemplate":"\u003cb\u003e%{x}\u003c\u002fb\u003e\u003cbr\u003eMedian: %{y:.1f} min\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":"#4C78A8"},"text":["1.0 min","0.3 min \u2020","6.7 min","3.3 min"],"textposition":"outside","texttemplate":"%{text}","x":["Session \u2192 View Products","View Products \u2192 Add to Cart","Add to Cart \u2192 Checkout","Checkout \u2192 Purchase"],"y":[1.0,0.3,6.7,3.3],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"yaxis":{"title":{"text":"Median minutes (converting sessions)"},"range":[0,8.375]},"margin":{"t":20,"b":10},"xaxis":{"tickangle":-15},"height":360,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
       <div class="insight-panel">
         <h4>Conclusion</h4>
-        <p>Converting sessions complete the journey in
-        <strong>0.3 hours</strong> (median).
-        The checkout → purchase step is near-instant, indicating
-        no meaningful payment friction for users who reach this stage.</p>
-        <p>Cart abandonment flows and checkout UX are lower priority
-        than driving more users to product pages in the first place.</p>
+        <p>Sessions that convert take a median <strong>16 minutes</strong>
+        from session start to purchase, with checkout → purchase taking
+        3.3 min. That describes buyers only. It doesn't show why
+        65% of carts never reach checkout.</p>
+        <p><strong>† Partly a tracking signal, not shopper behaviour.</strong> The median
+        saw-products → cart gap is only 0.3 min, and
+        <strong>15%</strong> of carting sessions
+        (2,263 of 15,188; 16% of converting ones)
+        log their first add-to-cart at the <em>exact</em> microsecond of their first
+        product impression. None fall
+        strictly between zero and one second, and
+        42 carts come before, or without, any product impression. Together
+        with the list-sized item arrays (Data quality, point 2), this points to
+        quick-add buttons on listing pages firing both events at once.</p>
       </div>
     </div>
   </div>
@@ -4271,13 +4386,13 @@ return Plotly;
           <thead>
             <tr>
               <th>Device</th><th>Sessions</th><th>Share</th>
-              <th>View Item</th><th>Add to Cart</th><th>Purchase</th>
+              <th>Saw Product</th><th>Add to Cart</th><th>Purchase</th><th>95% CI</th>
             </tr>
           </thead>
           <tbody>
-<tr><td class="dev-name">desktop</td><td>205,899</td><td>58.0%</td><td>21.3%</td><td>4.2%</td><td class="dev-key">0.75%</td></tr>
-<tr><td class="dev-name">mobile</td><td>141,079</td><td>39.8%</td><td>21.1%</td><td>4.2%</td><td class="dev-key">0.80%</td></tr>
-<tr><td class="dev-name">tablet</td><td>7,879</td><td>2.2%</td><td>21.0%</td><td>4.0%</td><td class="dev-key">0.77%</td></tr>
+<tr><td class="dev-name">desktop</td><td>205,899</td><td>58.0%</td><td>21.3%</td><td>4.2%</td><td class="dev-key">0.75%</td><td class="ci">0.71–0.78%</td></tr>
+<tr><td class="dev-name">mobile</td><td>141,079</td><td>39.8%</td><td>21.1%</td><td>4.2%</td><td class="dev-key">0.80%</td><td class="ci">0.75–0.84%</td></tr>
+<tr><td class="dev-name">tablet</td><td>7,879</td><td>2.2%</td><td>21.0%</td><td>4.0%</td><td class="dev-key">0.77%</td><td class="ci">0.60–0.99%</td></tr>
           </tbody>
         </table>
       </div>
@@ -4285,10 +4400,12 @@ return Plotly;
         <h4>Conclusion</h4>
         <p>Session-to-purchase rates sit within
         <strong>0.05 percentage points</strong> across desktop,
-        mobile and tablet. The funnel leaks at the same rate regardless of how
-        users reach the site.</p>
+        mobile and tablet, and their 95% intervals overlap.
+        A chi-square test of purchase × device gives
+        <strong>p = 0.259</strong> (χ² = 2.7,
+        2 df): no evidence that device changes the purchase rate.</p>
         <p><strong>This is reported precisely because it is a null result.</strong>
-        The intuitive next step after seeing a 0.8% conversion rate is a
+        The intuitive next step after seeing a 0.77% conversion rate is a
         mobile-first redesign. The data says that work would not have moved the
         number — the leak is upstream of device, in discovery.</p>
         <p class="caveat-note">Shown as a table, not a chart: three series
@@ -4302,11 +4419,11 @@ return Plotly;
   <p class="section-label">Acquisition Channel — Is Discovery a Traffic Problem?</p>
   <div class="card">
     <div class="chart-insight">
-      <div><div>                            <div id="chart-channel" class="plotly-graph-div" style="height:448px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-channel")) {                    Plotly.newPlot(                        "chart-channel",                        [{"customdata":[["92,892","26.2%"],["1,501","0.4%"],["7,664","2.2%"],["25,302","7.1%"],["37,670","10.6%"],["6,315","1.8%"],["102,788","29.0%"],["80,725","22.7%"]],"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSession \u2192 View Item: %{x:.1f}%\u003cbr\u003eSessions: %{customdata[0]} (%{customdata[1]} of total)\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#dc2626","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8"]},"orientation":"h","text":["6.7%","19.9%","21.6%","22.2%","22.7%","23.0%","26.3%","30.3%"],"textposition":"outside","texttemplate":"%{text}","x":[6.7,19.9,21.6,22.2,22.7,23.0,26.3,30.3],"y":["(not set)","other (2 small channels)","cpc","\u003cOther\u003e","(none)","(data deleted)","organic","referral"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"shapes":[{"line":{"color":"#6b7280","dash":"dash"},"type":"line","x0":21.2,"x1":21.2,"xref":"x","y0":0,"y1":1,"yref":"y domain"}],"annotations":[{"showarrow":false,"text":"site avg 21.2%","x":21.2,"xanchor":"center","xref":"x","y":1,"yanchor":"bottom","yref":"y domain"}],"margin":{"l":10,"r":40,"t":30,"b":10},"xaxis":{"title":{"text":"% of sessions reaching a product page"},"range":[0,36.335212139981415]},"height":448,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
+      <div><div>                            <div id="chart-channel" class="plotly-graph-div" style="height:448px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-channel")) {                    Plotly.newPlot(                        "chart-channel",                        [{"customdata":[["92,892","26.2%"],["1,501","0.4%"],["7,664","2.2%"],["25,302","7.1%"],["37,670","10.6%"],["6,315","1.8%"],["102,788","29.0%"],["80,725","22.7%"]],"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSessions that saw a product: %{x:.1f}%\u003cbr\u003eSessions: %{customdata[0]} (%{customdata[1]} of total)\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#dc2626","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8"]},"orientation":"h","text":["6.7%","19.9%","21.6%","22.2%","22.7%","23.0%","26.3%","30.3%"],"textposition":"outside","texttemplate":"%{text}","x":[6.7,19.9,21.6,22.2,22.7,23.0,26.3,30.3],"y":["(not set)","other (2 small channels)","cpc","\u003cOther\u003e","(none)","(data deleted)","organic","referral"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"shapes":[{"line":{"color":"#6b7280","dash":"dash"},"type":"line","x0":21.2,"x1":21.2,"xref":"x","y0":0,"y1":1,"yref":"y domain"}],"annotations":[{"showarrow":false,"text":"site avg 21.2%","x":21.2,"xanchor":"center","xref":"x","y":1,"yanchor":"bottom","yref":"y domain"}],"margin":{"l":10,"r":40,"t":30,"b":10},"xaxis":{"title":{"text":"% of sessions that saw a product"},"range":[0,36.335212139981415]},"height":448,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
       <div class="insight-panel">
         <h4>Conclusion</h4>
-        <p><strong>Leaning site, not traffic — but borderline.</strong> The spread between cpc (21.6%) and referral (30.3%) is <strong>8.7pp</strong>: under the 10pp threshold, but close to it. Every channel still loses the large majority of its visitors before a product page, so navigation / discovery remains the leading explanation rather than a settled one.</p><p>Cheap check before committing to a navigation redesign: review the cpc landing pages against what its ads promise.</p><p><strong>Unattributed sessions.</strong> 26.2% of sessions carry no session-level medium; they reach a product page at <strong>6.7%</strong> and are excluded from the spread. That drags the site average (21.2%) below every named channel — this block is worth investigating on its own.</p>
-        <p class="caveat-note">Channel = the session's own medium, taken from <code>event_params</code>. The public sample obfuscates
+        <p><strong>Leaning site, not traffic — but borderline.</strong> The spread between cpc (21.6%) and referral (30.3%) is <strong>8.7pp</strong>: under the 10pp threshold, but close to it. Every channel still loses at least 70% of its sessions before they see a product, so navigation / discovery remains the leading explanation rather than a settled one.</p><p>Cheap check before committing to a navigation redesign: review the cpc landing pages against what its ads promise.</p><p><strong>(not set)</strong> = sessions with no session-level medium (26.2% of sessions). They see a product in <strong>6.7%</strong> of cases and are excluded from the spread. This is a tagging gap that hits short sessions hardest, not a channel; it is why the site average (21.2%) sits below every named channel (see Data quality above). Because short sessions drop into (not set), every named channel's rate is somewhat inflated.</p><p><strong>Significant, but that is not the question.</strong> A chi-square test across the named channels gives p &lt; 0.001 (χ² = 1,257, 5 df) — with this many sessions almost any gap is statistically significant. Whether the leak is the site or the traffic is a question of <em>practical</em> size (the 10pp threshold), not of significance; the effect size is small (Cramér's V = 0.069).</p>
+        <p class="caveat-note">Channel = the session's own medium, taken from <code>event_params</code>; <code>(none)</code> is GA4's label for direct traffic. The 10pp decision threshold is an analyst-set assumption (47% of the site's 21.2% product-view rate), not an industry standard. The public sample obfuscates
         some values (<code>&lt;Other&gt;</code>, <code>(data deleted)</code>);
         they are kept as reported rather than guessed.</p>
       </div>
@@ -4314,8 +4431,8 @@ return Plotly;
     <table class="dev-table" style="margin-top:20px">
       <thead>
         <tr>
-          <th>Channel</th><th>Sessions</th><th>Share</th><th>→ View Item</th>
-          <th>View → Cart</th><th>Purchase</th><th>Rev / Session</th>
+          <th>Channel</th><th>Sessions</th><th>Share</th><th>Saw Product</th>
+          <th>Saw → Cart</th><th>Purchase</th><th>Rev / Session</th>
         </tr>
       </thead>
       <tbody>
@@ -4339,13 +4456,15 @@ return Plotly;
   <p class="section-label">Product Category — Where Interest Fails to Become Intent</p>
   <div class="card">
     <div class="chart-insight">
-      <div><div>                            <div id="chart-category" class="plotly-graph-div" style="height:770px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-category")) {                    Plotly.newPlot(                        "chart-category",                        [{"customdata":[["4,754","444"],["1,810","161"],["4,796","356"],["6,548","385"],["5,335","303"],["3,725","191"],["2,755","104"],["874","20"],["798","18"],["3,234","61"],["3,951","64"],["2,966","11"],["13,672","39"],["4,778","0"],["2,237","0"],["5,382","0"],["9,763","0"],["3,142","0"],["1,018","0"],["2,010","0"],["1,583","0"],["6,226","0"],["976","0"]],"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eView \u2192 Cart: %{x:.1f}%\u003cbr\u003eViewing sessions: %{customdata[0]}\u003cbr\u003eCarts at stake: %{customdata[1]}\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8"]},"orientation":"h","text":["15.6%","16.1%","17.6%","19.1%","19.3%","19.9%","21.2%","22.7%","22.7%","23.1%","23.4%","24.6%","24.7%","25.1%","27.0%","28.2%","29.1%","29.2%","30.4%","30.4%","32.4%","40.6%","40.9%"],"textposition":"outside","texttemplate":"%{text}","x":[15.6,16.1,17.6,19.1,19.3,19.9,21.2,22.7,22.7,23.1,23.4,24.6,24.7,25.1,27.0,28.2,29.1,29.2,30.4,30.4,32.4,40.6,40.9],"y":["YouTube","Men's T-Shirts","Bags","Apparel","New","Eco-Friendly","Lifestyle","Android","Shop by Brand","Google","Small Goods","Kids","Men's \u002f Unisex","Women's","Stationery","Drinkware","Sale","Campus Collection","Socks","Notebooks","Stickers","Hats","Writing"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"shapes":[{"line":{"color":"#6b7280","dash":"dash"},"type":"line","x0":24.993231022494665,"x1":24.993231022494665,"xref":"x","y0":0,"y1":1,"yref":"y domain"}],"annotations":[{"showarrow":false,"text":"benchmark 25.0%","x":24.993231022494665,"xanchor":"center","xref":"x","y":1,"yanchor":"bottom","yref":"y domain"}],"margin":{"l":10,"r":40,"t":30,"b":10},"yaxis":{"autorange":"reversed"},"xaxis":{"title":{"text":"% of viewing sessions that add that category to cart"},"range":[0,49.05737704918033]},"height":770,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
+      <div><div>                            <div id="chart-category" class="plotly-graph-div" style="height:770px; width:100%;"></div>            <script>                window.PLOTLYENV=window.PLOTLYENV || {};                                if (document.getElementById("chart-category")) {                    Plotly.newPlot(                        "chart-category",                        [{"customdata":[["3,234","205","11.9\u201314.2%"],["3,725","225","12.2\u201314.4%"],["4,796","273","12.7\u201314.6%"],["6,548","345","13.2\u201314.9%"],["2,755","144","12.8\u201315.4%"],["1,810","79","13.4\u201316.7%"],["4,778","202","14.1\u201316.1%"],["798","31","13.1\u201318.1%"],["3,951","152","14.4\u201316.7%"],["4,754","178","14.6\u201316.6%"],["5,335","142","15.7\u201317.7%"],["9,763","228","16.3\u201317.8%"],["874","0","15.3\u201320.4%"],["5,382","0","17.4\u201319.5%"],["13,672","0","19.1\u201320.4%"],["2,966","0","19.8\u201322.7%"],["3,142","0","20.7\u201323.6%"],["2,237","0","21.2\u201324.7%"],["2,010","0","25.4\u201329.3%"],["1,018","0","27.6\u201333.2%"],["1,583","0","30.1\u201334.7%"],["976","0","34.9\u201341.0%"],["6,226","0","39.4\u201341.8%"]],"error_x":{"array":[1.2,1.13,1.0,0.86,1.35,1.72,1.04,2.67,1.16,1.06,1.02,0.76,2.67,1.06,0.68,1.51,1.49,1.79,1.99,2.89,2.34,3.09,1.23],"arrayminus":[1.11,1.05,0.94,0.82,1.25,1.57,0.99,2.34,1.09,1.0,0.98,0.73,2.39,1.01,0.66,1.43,1.42,1.69,1.9,2.75,2.26,2.99,1.21],"color":"#6b7280","symmetric":false,"thickness":1,"type":"data","width":3},"hovertemplate":"\u003cb\u003e%{y}\u003c\u002fb\u003e\u003cbr\u003eSeen \u2192 carted: %{x:.1f}% (95% CI %{customdata[2]})\u003cbr\u003eSessions that saw it: %{customdata[0]}\u003cbr\u003eCarts at stake: %{customdata[1]}\u003cextra\u003e\u003c\u002fextra\u003e","marker":{"color":["#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#ea580c","#cbd5e1","#cbd5e1","#cbd5e1","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8","#4C78A8"]},"orientation":"h","text":["13.0%","13.3%","13.6%","14.1%","14.1%","15.0%","15.1%","15.4%","15.5%","15.6%","16.7%","17.0%","17.7%","18.5%","19.7%","21.2%","22.2%","22.9%","27.3%","30.4%","32.3%","37.9%","40.6%"],"textposition":"outside","texttemplate":"%{text}","x":[13.0,13.3,13.6,14.1,14.1,15.0,15.1,15.4,15.5,15.6,16.7,17.0,17.7,18.5,19.7,21.2,22.2,22.9,27.3,30.4,32.3,37.9,40.6],"y":["Google","Eco-Friendly","Bags","Apparel","Lifestyle","Men's T-Shirts","Women's","Shop by Brand","Small Goods","YouTube","New","Sale","Android","Drinkware","Men's \u002f Unisex","Kids","Campus Collection","Stationery","Notebooks","Socks","Stickers","Writing","Hats"],"type":"bar"}],                        {"template":{"data":{"histogram2dcontour":[{"type":"histogram2dcontour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"choropleth":[{"type":"choropleth","colorbar":{"outlinewidth":0,"ticks":""}}],"histogram2d":[{"type":"histogram2d","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"heatmap":[{"type":"heatmap","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"contourcarpet":[{"type":"contourcarpet","colorbar":{"outlinewidth":0,"ticks":""}}],"contour":[{"type":"contour","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"surface":[{"type":"surface","colorbar":{"outlinewidth":0,"ticks":""},"colorscale":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]]}],"mesh3d":[{"type":"mesh3d","colorbar":{"outlinewidth":0,"ticks":""}}],"scatter":[{"fillpattern":{"fillmode":"overlay","size":10,"solidity":0.2},"type":"scatter"}],"parcoords":[{"type":"parcoords","line":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolargl":[{"type":"scatterpolargl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"bar":[{"error_x":{"color":"#2a3f5f"},"error_y":{"color":"#2a3f5f"},"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"bar"}],"scattergeo":[{"type":"scattergeo","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterpolar":[{"type":"scatterpolar","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"histogram":[{"marker":{"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"histogram"}],"scattergl":[{"type":"scattergl","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatter3d":[{"type":"scatter3d","line":{"colorbar":{"outlinewidth":0,"ticks":""}},"marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermap":[{"type":"scattermap","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattermapbox":[{"type":"scattermapbox","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scatterternary":[{"type":"scatterternary","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"scattercarpet":[{"type":"scattercarpet","marker":{"colorbar":{"outlinewidth":0,"ticks":""}}}],"carpet":[{"aaxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"baxis":{"endlinecolor":"#2a3f5f","gridcolor":"white","linecolor":"white","minorgridcolor":"white","startlinecolor":"#2a3f5f"},"type":"carpet"}],"table":[{"cells":{"fill":{"color":"#EBF0F8"},"line":{"color":"white"}},"header":{"fill":{"color":"#C8D4E3"},"line":{"color":"white"}},"type":"table"}],"barpolar":[{"marker":{"line":{"color":"#E5ECF6","width":0.5},"pattern":{"fillmode":"overlay","size":10,"solidity":0.2}},"type":"barpolar"}],"pie":[{"automargin":true,"type":"pie"}]},"layout":{"autotypenumbers":"strict","colorway":["#636efa","#EF553B","#00cc96","#ab63fa","#FFA15A","#19d3f3","#FF6692","#B6E880","#FF97FF","#FECB52"],"font":{"color":"#2a3f5f"},"hovermode":"closest","hoverlabel":{"align":"left"},"paper_bgcolor":"white","plot_bgcolor":"#E5ECF6","polar":{"bgcolor":"#E5ECF6","angularaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"radialaxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"ternary":{"bgcolor":"#E5ECF6","aaxis":{"gridcolor":"white","linecolor":"white","ticks":""},"baxis":{"gridcolor":"white","linecolor":"white","ticks":""},"caxis":{"gridcolor":"white","linecolor":"white","ticks":""}},"coloraxis":{"colorbar":{"outlinewidth":0,"ticks":""}},"colorscale":{"sequential":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"sequentialminus":[[0.0,"#0d0887"],[0.1111111111111111,"#46039f"],[0.2222222222222222,"#7201a8"],[0.3333333333333333,"#9c179e"],[0.4444444444444444,"#bd3786"],[0.5555555555555556,"#d8576b"],[0.6666666666666666,"#ed7953"],[0.7777777777777778,"#fb9f3a"],[0.8888888888888888,"#fdca26"],[1.0,"#f0f921"]],"diverging":[[0,"#8e0152"],[0.1,"#c51b7d"],[0.2,"#de77ae"],[0.3,"#f1b6da"],[0.4,"#fde0ef"],[0.5,"#f7f7f7"],[0.6,"#e6f5d0"],[0.7,"#b8e186"],[0.8,"#7fbc41"],[0.9,"#4d9221"],[1,"#276419"]]},"xaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"yaxis":{"gridcolor":"white","linecolor":"white","ticks":"","title":{"standoff":15},"zerolinecolor":"white","automargin":true,"zerolinewidth":2},"scene":{"xaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"yaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2},"zaxis":{"backgroundcolor":"#E5ECF6","gridcolor":"white","linecolor":"white","showbackground":true,"ticks":"","zerolinecolor":"white","gridwidth":2}},"shapedefaults":{"line":{"color":"#2a3f5f"}},"annotationdefaults":{"arrowcolor":"#2a3f5f","arrowhead":0,"arrowwidth":1},"geo":{"bgcolor":"white","landcolor":"#E5ECF6","subunitcolor":"white","showland":true,"showlakes":true,"lakecolor":"white"},"title":{"x":0.05},"mapbox":{"style":"light"}}},"shapes":[{"line":{"color":"#6b7280","dash":"dash"},"type":"line","x0":19.325701536828653,"x1":19.325701536828653,"xref":"x","y0":0,"y1":1,"yref":"y domain"}],"annotations":[{"showarrow":false,"text":"site average 19.3%","x":19.325701536828653,"xanchor":"center","xref":"x","y":1,"yanchor":"bottom","yref":"y domain"}],"margin":{"l":10,"r":40,"t":30,"b":10},"yaxis":{"autorange":"reversed"},"xaxis":{"title":{"text":"% of sessions that saw the category and carted an item from it"},"range":[0,48.06648569213989]},"height":770,"showlegend":false,"paper_bgcolor":"white","plot_bgcolor":"white"},                        {"responsive": true}                    )                };            </script>        </div></div>
       <div class="insight-panel">
-        <h4>Where to start the product-page audit</h4>
-        <p>Ranked by <strong>carts at stake</strong> — extra carting sessions if a category merely converted at the 25.0% benchmark — the audit should start with <strong>YouTube</strong>, <strong>Apparel</strong>, <strong>Bags</strong>. Together they account for <strong>1,185</strong> of the <strong>2,157</strong> carts at stake across all ranked categories.</p><p>Ranking by volume × gap, not by rate alone, stops a niche category with a dramatic rate from jumping the queue ahead of a high-traffic category with a moderate gap.</p>
-        <p class="caveat-note">A session counts for a category only if it added an
-        item <em>of that category</em> after viewing it, so rates are stricter than
-        the 20% shoppers figure and rows are not additive.
+        <h4>Where to start the merchandising audit</h4>
+        <p>A category is flagged as <strong>underperforming</strong> only when its whole 95% confidence interval lies below the 19.3% site average (all ranked categories pooled): <strong>12</strong> of 23 are, 8 sit clearly above, and 3 cannot be told apart from average (grey). With 23 intervals at 95%, about 1 flag(s) could be chance, so treat the list as a shortlist.</p><p>Ranked by <strong>carts at stake</strong> — the extra carting sessions a flagged category would gain at the site average — the audit should start with <strong>Apparel</strong>, <strong>Bags</strong>, <strong>Sale</strong>. Together they account for <strong>846</strong> of the <strong>2,204</strong> carts at stake across flagged categories.</p><p>Ranking by volume × gap, not by rate alone, stops a niche category with a dramatic rate from jumping the queue ahead of a high-traffic category with a moderate gap.</p>
+        <p class="caveat-note">A session "saw" a category when a product from it appeared
+        in a viewed product list. It counts as carted only if the item actually carted
+        (the one with a quantity, not the rest of the list) is from that category and
+        was carted after the first sighting. So rates are stricter than the
+        20% shoppers figure, and rows are not additive.
         Categories with fewer than 500 viewing sessions
         (23 excluded) and <code>(not set)</code>
         (5.0% of category views) are not ranked.
@@ -4353,39 +4472,40 @@ return Plotly;
         (<code>Lifestyle/Bags/</code> → <code>Bags</code>): 74 raw
         labels collapse into 47 categories, 27 of
         them merged from more than one label.</p>
+        <p class="caveat-note"><strong>Price is not controlled.</strong> Across ranked categories, median listed price and seen → carted rate have a rank correlation of -0.33 (p = 0.123). That is too weak to explain the ranking on its own, but cheap categories may still be an easier yes, so a low rate is not proof of a presentation problem.</p>
       </div>
     </div>
     <table class="dev-table" style="margin-top:20px">
       <thead>
         <tr>
-          <th>Category</th><th>Viewing sessions</th><th>Carting sessions</th>
-          <th>View → Cart</th><th>Carts at stake</th>
+          <th>Category</th><th>Sessions that saw it</th><th>Carting sessions</th>
+          <th>Seen → Carted</th><th>95% CI</th><th>vs site average</th><th>Carts at stake</th>
         </tr>
       </thead>
       <tbody>
-<tr><td class="dev-name">YouTube<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Shop by Brand/YouTube/ · YouTube</div></td><td>4,754</td><td>744</td><td class="dev-key">15.6%</td><td>444</td></tr>
-<tr><td class="dev-name">Apparel<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Apparel · Home/Apparel/</div></td><td>6,548</td><td>1,252</td><td class="dev-key">19.1%</td><td>385</td></tr>
-<tr><td class="dev-name">Bags<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Bags · Lifestyle/Bags/</div></td><td>4,796</td><td>843</td><td class="dev-key">17.6%</td><td>356</td></tr>
-<tr><td class="dev-name">New<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/New/ · New</div></td><td>5,335</td><td>1,030</td><td class="dev-key">19.3%</td><td>303</td></tr>
-<tr><td class="dev-name">Eco-Friendly<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Eco-Friendly · Home/Eco-Friendly/</div></td><td>3,725</td><td>740</td><td class="dev-key">19.9%</td><td>191</td></tr>
-<tr><td class="dev-name">Men&#x27;s T-Shirts<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Men&#x27;s T-Shirts · Men&#x27;s T-Shirts/</div></td><td>1,810</td><td>291</td><td class="dev-key">16.1%</td><td>161</td></tr>
-<tr><td class="dev-name">Lifestyle<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Lifestyle · Lifestyle/</div></td><td>2,755</td><td>585</td><td class="dev-key">21.2%</td><td>104</td></tr>
-<tr><td class="dev-name">Small Goods<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Lifestyle/Small Goods/ · Small Goods</div></td><td>3,951</td><td>923</td><td class="dev-key">23.4%</td><td>64</td></tr>
-<tr><td class="dev-name">Google<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Google · Home/Shop by Brand/Google/</div></td><td>3,234</td><td>747</td><td class="dev-key">23.1%</td><td>61</td></tr>
-<tr><td class="dev-name">Men&#x27;s / Unisex<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Men&#x27;s / Unisex/ · Men&#x27;s / Unisex</div></td><td>13,672</td><td>3,378</td><td class="dev-key">24.7%</td><td>39</td></tr>
-<tr><td class="dev-name">Android<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Android · Home/Shop by Brand/Android/</div></td><td>874</td><td>198</td><td class="dev-key">22.7%</td><td>20</td></tr>
-<tr><td class="dev-name">Shop by Brand<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Shop by Brand/ · Shop by Brand</div></td><td>798</td><td>181</td><td class="dev-key">22.7%</td><td>18</td></tr>
-<tr><td class="dev-name">Kids<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Kids/ · Kids</div></td><td>2,966</td><td>730</td><td class="dev-key">24.6%</td><td>11</td></tr>
-<tr><td class="dev-name">Women&#x27;s<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Women&#x27;s/ · Women&#x27;s</div></td><td>4,778</td><td>1,198</td><td class="dev-key">25.1%</td><td>0</td></tr>
-<tr><td class="dev-name">Stationery<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/ · Stationery</div></td><td>2,237</td><td>603</td><td class="dev-key">27.0%</td><td>0</td></tr>
-<tr><td class="dev-name">Drinkware<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Drinkware · Lifestyle/Drinkware/</div></td><td>5,382</td><td>1,518</td><td class="dev-key">28.2%</td><td>0</td></tr>
-<tr><td class="dev-name">Sale<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Sale/ · Sale</div></td><td>9,763</td><td>2,838</td><td class="dev-key">29.1%</td><td>0</td></tr>
-<tr><td class="dev-name">Campus Collection<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Campus Collection · Home/Campus Collection/</div></td><td>3,142</td><td>916</td><td class="dev-key">29.2%</td><td>0</td></tr>
-<tr><td class="dev-name">Socks</td><td>1,018</td><td>309</td><td class="dev-key">30.4%</td><td>0</td></tr>
-<tr><td class="dev-name">Notebooks<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/Notebooks/ · Notebooks</div></td><td>2,010</td><td>612</td><td class="dev-key">30.4%</td><td>0</td></tr>
-<tr><td class="dev-name">Stickers</td><td>1,583</td><td>513</td><td class="dev-key">32.4%</td><td>0</td></tr>
-<tr><td class="dev-name">Hats<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Hats · Home/Apparel/Hats/</div></td><td>6,226</td><td>2,529</td><td class="dev-key">40.6%</td><td>0</td></tr>
-<tr><td class="dev-name">Writing<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/Writing/ · Writing</div></td><td>976</td><td>399</td><td class="dev-key">40.9%</td><td>0</td></tr>
+<tr><td class="dev-name">Apparel<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Apparel · Home/Apparel/</div></td><td>6,548</td><td>920</td><td class="dev-key">14.1%</td><td class="ci">13.2–14.9%</td><td><span class="flag-below">below</span></td><td>345</td></tr>
+<tr><td class="dev-name">Bags<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Bags · Lifestyle/Bags/</div></td><td>4,796</td><td>654</td><td class="dev-key">13.6%</td><td class="ci">12.7–14.6%</td><td><span class="flag-below">below</span></td><td>273</td></tr>
+<tr><td class="dev-name">Sale<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Sale/ · Sale</div></td><td>9,763</td><td>1,659</td><td class="dev-key">17.0%</td><td class="ci">16.3–17.8%</td><td><span class="flag-below">below</span></td><td>228</td></tr>
+<tr><td class="dev-name">Eco-Friendly<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Eco-Friendly · Home/Eco-Friendly/</div></td><td>3,725</td><td>495</td><td class="dev-key">13.3%</td><td class="ci">12.2–14.4%</td><td><span class="flag-below">below</span></td><td>225</td></tr>
+<tr><td class="dev-name">Google<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Google · Home/Shop by Brand/Google/</div></td><td>3,234</td><td>420</td><td class="dev-key">13.0%</td><td class="ci">11.9–14.2%</td><td><span class="flag-below">below</span></td><td>205</td></tr>
+<tr><td class="dev-name">Women&#x27;s<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Women&#x27;s/ · Women&#x27;s</div></td><td>4,778</td><td>721</td><td class="dev-key">15.1%</td><td class="ci">14.1–16.1%</td><td><span class="flag-below">below</span></td><td>202</td></tr>
+<tr><td class="dev-name">YouTube<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Shop by Brand/YouTube/ · YouTube</div></td><td>4,754</td><td>741</td><td class="dev-key">15.6%</td><td class="ci">14.6–16.6%</td><td><span class="flag-below">below</span></td><td>178</td></tr>
+<tr><td class="dev-name">Small Goods<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Lifestyle/Small Goods/ · Small Goods</div></td><td>3,951</td><td>612</td><td class="dev-key">15.5%</td><td class="ci">14.4–16.7%</td><td><span class="flag-below">below</span></td><td>152</td></tr>
+<tr><td class="dev-name">Lifestyle<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Lifestyle · Lifestyle/</div></td><td>2,755</td><td>388</td><td class="dev-key">14.1%</td><td class="ci">12.8–15.4%</td><td><span class="flag-below">below</span></td><td>144</td></tr>
+<tr><td class="dev-name">New<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/New/ · New</div></td><td>5,335</td><td>889</td><td class="dev-key">16.7%</td><td class="ci">15.7–17.7%</td><td><span class="flag-below">below</span></td><td>142</td></tr>
+<tr><td class="dev-name">Men&#x27;s T-Shirts<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Men&#x27;s T-Shirts · Men&#x27;s T-Shirts/</div></td><td>1,810</td><td>271</td><td class="dev-key">15.0%</td><td class="ci">13.4–16.7%</td><td><span class="flag-below">below</span></td><td>79</td></tr>
+<tr><td class="dev-name">Shop by Brand<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Shop by Brand/ · Shop by Brand</div></td><td>798</td><td>123</td><td class="dev-key">15.4%</td><td class="ci">13.1–18.1%</td><td><span class="flag-below">below</span></td><td>31</td></tr>
+<tr><td class="dev-name">Android<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Android · Home/Shop by Brand/Android/</div></td><td>874</td><td>155</td><td class="dev-key">17.7%</td><td class="ci">15.3–20.4%</td><td><span class="flag-neutral">≈ average</span></td><td>0</td></tr>
+<tr><td class="dev-name">Drinkware<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Drinkware · Lifestyle/Drinkware/</div></td><td>5,382</td><td>993</td><td class="dev-key">18.5%</td><td class="ci">17.4–19.5%</td><td><span class="flag-neutral">≈ average</span></td><td>0</td></tr>
+<tr><td class="dev-name">Men&#x27;s / Unisex<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Men&#x27;s / Unisex/ · Men&#x27;s / Unisex</div></td><td>13,672</td><td>2,699</td><td class="dev-key">19.7%</td><td class="ci">19.1–20.4%</td><td><span class="flag-neutral">≈ average</span></td><td>0</td></tr>
+<tr><td class="dev-name">Kids<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Apparel/Kids/ · Kids</div></td><td>2,966</td><td>630</td><td class="dev-key">21.2%</td><td class="ci">19.8–22.7%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Campus Collection<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Campus Collection · Home/Campus Collection/</div></td><td>3,142</td><td>696</td><td class="dev-key">22.2%</td><td class="ci">20.7–23.6%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Stationery<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/ · Stationery</div></td><td>2,237</td><td>513</td><td class="dev-key">22.9%</td><td class="ci">21.2–24.7%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Notebooks<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/Notebooks/ · Notebooks</div></td><td>2,010</td><td>548</td><td class="dev-key">27.3%</td><td class="ci">25.4–29.3%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Socks</td><td>1,018</td><td>309</td><td class="dev-key">30.4%</td><td class="ci">27.6–33.2%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Stickers</td><td>1,583</td><td>512</td><td class="dev-key">32.3%</td><td class="ci">30.1–34.7%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Writing<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Home/Stationery/Writing/ · Writing</div></td><td>976</td><td>370</td><td class="dev-key">37.9%</td><td class="ci">34.9–41.0%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
+<tr><td class="dev-name">Hats<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: Hats · Home/Apparel/Hats/</div></td><td>6,226</td><td>2,526</td><td class="dev-key">40.6%</td><td class="ci">39.4–41.8%</td><td><span class="flag-above">above</span></td><td>0</td></tr>
       </tbody>
     </table>
   </div>
@@ -4397,20 +4517,22 @@ return Plotly;
       <div class="insight-panel">
         <h4>What this shows</h4>
         <p>Each row is a group of users who had their <em>first ever session</em>
-        in that week. The cells show what % of them returned in each
-        subsequent week.</p>
+        in that week. The cells show what % of them had a session in each
+        later calendar week.</p>
+        <p><strong>Week-1 return</strong> is the share of a weekly cohort with any session in the next calendar week (Monday-anchored) — so a user's return window is 1 to 13 days, not exactly 7.</p>
         <p>Avg Week-1 return: <strong>4.2%</strong><br>
         Avg Week-2 return: <strong>1.9%</strong></p>
         <h4 style="margin-top:16px">What this means</h4>
-        <p>Week-1 retention of <strong>4.2%</strong> is
-        significantly below the ~20% benchmark.
-        Most users who visit once do not come back.</p>
+        <p>Week-1 return of <strong>4.2%</strong> is
+        3.8pp below the
+        8% planning target (an assumption, not an external benchmark).
+        96% of a typical cohort shows no session the following week.</p>
         <p><strong>Possible causes</strong> (this dataset cannot tell them
         apart): no triggered email or push re-engagement, traffic from
         low-intent channels, or a first session that didn't reach a product.</p>
-        <p><strong>In SaaS terms:</strong> this is equivalent to D7 retention —
-        the % of activated users who return within 7 days. The intervention
-        is lifecycle emails or in-app nudges surfaced at Day 2–3.</p>
+        <p><strong>In SaaS terms:</strong> the closest analogue is D7 retention,
+        but this is a calendar-week measure, so it is not directly comparable. The
+        usual intervention is lifecycle emails or in-app nudges on day 2–3.</p>
         <h4 style="margin-top:16px">Data quality — two boundary effects</h4>
         <p><strong>1 · The first cohort is a partial week.</strong> Cohorts are Monday-anchored, but the data window opens on 01 Nov 2020 — a Sunday. The 2020-10-26 bucket therefore captures only <strong>1 day(s)</strong> of first sessions: <strong>2,339 users</strong> against <strong>19,194</strong> in the first full cohort (2020-11-02). Its elevated Week-1 rate is small-sample variance from the window boundary, not a behavioural signal — so it is <strong>excluded from the averages above</strong> rather than explained.</p>
         <p><strong>2 · Recent cohorts are right-censored.</strong> A user who
@@ -4426,6 +4548,42 @@ return Plotly;
     </div>
   </div>
 
+
+  <p class="section-label">New vs Returning Sessions</p>
+  <div class="card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Funnel</th><th>New (session 1)</th><th>Returning</th></tr></thead>
+          <tbody>
+<tr><td class="dev-name">Sessions</td><td>257,400</td><td>97,457</td></tr>
+<tr><td class="dev-name">Saw a product</td><td>19.8%</td><td>24.9%</td></tr>
+<tr><td class="dev-name">Saw → carted</td><td>17.0%</td><td>25.5%</td></tr>
+<tr><td class="dev-name">Cart → checkout</td><td>29.8%</td><td>42.3%</td></tr>
+<tr><td class="dev-name">Checkout → purchase</td><td>41.6%</td><td>62.8%</td></tr>
+<tr><td class="dev-name">Session → purchase</td><td>0.42%</td><td>1.69%</td></tr>
+<tr><td class="dev-name">Revenue / session</td><td>$0.27</td><td>$1.27</td></tr><tr><td class="dev-name">95% CI (purchase)</td><td class="ci">0.39–0.44%</td><td class="ci">1.61–1.77%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>A session is <strong>new</strong> when GA4's <code>ga_session_number</code> is 1 (the
+        user's first session ever on that device/browser), otherwise <strong>returning</strong>.
+        Returning sessions are 27% of
+        traffic but buy at <strong>1.69%</strong> against
+        0.42% — <strong>4.1×</strong> — and earn
+        $1.27 per session against $0.27
+        (χ² p &lt; 0.001). They do better at every step, the largest gap being
+        checkout → purchase (63% vs
+        42%).</p>
+        <p class="caveat-note">This is not the effect of coming back. Users who return
+        unprompted were already keener, so re-engaged users are priced between the two
+        rates in Recommendation 2, not at the returning rate.</p>
+      </div>
+    </div>
+  </div>
+
   <!-- ── Recommendations ────────────────────────────────────────────────── -->
   <p class="section-label">Recommendations — Prioritised by Impact</p>
   <div class="rec-grid">
@@ -4436,11 +4594,10 @@ return Plotly;
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p><strong>79% of sessions never reach a product page</strong> —
-        that's <strong>279,596 visits</strong> lost before the
-        buying experience even begins. This is the single largest drop in the funnel and
-        the highest-leverage opportunity. In a SaaS context, this maps to users who log in
-        but never navigate to a core feature.</p>
+        <p><strong>79% of sessions never see a product</strong> —
+        <strong>279,596 visits</strong> lost before shopping begins.
+        This is the largest absolute loss in the funnel. In a SaaS context, it maps to
+        users who log in but never navigate to a core feature.</p>
       </div>
 
       <div class="rec-section">
@@ -4453,42 +4610,44 @@ return Plotly;
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>A <strong>5pp improvement</strong> in session → view_item rate would drive
-        approximately <strong>~641 additional orders</strong> and
-        ~<strong>$50,447</strong> in additional revenue at current AOV.</p>
-        <div class="metric">session → view_item rate (target: &gt;30%)</div>
+        <p>A <strong>5pp improvement</strong> in the share of sessions that see a product
+        would drive approximately <strong>~641 additional orders</strong>
+        and ~<strong>$45,626</strong> (upper bound; see sensitivity above).</p>
+        <div class="metric">share of sessions that see a product (target: 26.2% — the +5pp planning scenario, an assumption)</div>
       </div>
     </div>
 
     <div class="rec">
       <span class="rec-priority p2">Priority 2 · Short-term</span>
-      <h4>Build a re-engagement lifecycle</h4>
+      <h4>Recover carts and build re-engagement</h4>
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p>Week-1 retention of <strong>4.2%</strong> means the vast majority of
-        acquired users visit once and never return — well below the ~20% benchmark for
-        healthy e-commerce cohorts. This dataset cannot show whether any re-engagement
+        <p><strong>65% of carting sessions</strong>
+        (9,665 of 14,870) never begin checkout, and Week-1 return
+        is <strong>4.2%</strong> (96% of a cohort has no session the
+        next calendar week). This dataset cannot show whether any re-engagement
         (email, push, remarketing) was running; if none was, it is the first thing to test.</p>
       </div>
 
       <div class="rec-section">
         <div class="rec-section-label">Recommended Actions</div>
-        <p>Launch a triggered email or push sequence:
-        <strong>Day 1</strong> (product browsed but not purchased),
-        <strong>Day 3</strong> (cart abandonment reminder),
-        <strong>Day 7</strong> (win-back with incentive).
-        Measure Week-1 and Week-2 return rates per cohort separately to isolate the effect.</p>
+        <p>Launch a triggered email or push sequence for identifiable users:
+        <strong>within 24h</strong> a cart reminder for sessions that carted but did not
+        check out, <strong>day 3</strong> a reminder of products they browsed, and
+        <strong>day 7</strong> a win-back offer. Test it against a holdout group and measure cart →
+        checkout and Week-1 / Week-2 return per cohort.</p>
       </div>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>Lifting Week-1 retention from today's <strong>4.2%</strong> average to
+        <p>Lifting Week-1 return from today's <strong>4.2%</strong> average to
         <strong>8%</strong> would have brought back
         ~<strong>9,444</strong> more users in their second week, across the
         12 full cohorts (245,828 first-time users) observed in this
-        window — repeat sessions that need no extra acquisition spend.</p>
-        <div class="metric">Week-1 cohort retention rate (target: &gt;8%)</div>
+        window — repeat sessions that need no extra acquisition spend.
+        Counting one session each, valued between a new session ($0.27) and a returning one ($1.27), that is <strong>$2,563–$11,999</strong> over the window, before any cart-recovery effect.</p>
+        <div class="metric">cart → checkout rate · Week-1 return (target: 8%, a planning assumption)</div>
       </div>
     </div>
 
@@ -4498,68 +4657,27 @@ return Plotly;
 
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
-        <p>Product-page reach is within <strong>8.7pp</strong> across channels (just under the 10pp threshold), so discovery is mainly not a traffic-quality problem. Channels still differ in <em>value</em>, though — revenue per session is the remaining reason to segment. Highest revenue per session: <strong>referral</strong> ($1.28).</p>
+        <p>Product reach is within <strong>8.7pp</strong> across channels (just under the 10pp threshold), so discovery is mainly not a traffic-quality problem. Channels still differ in <em>value</em>, though — revenue per session is the remaining reason to segment. Highest revenue per session: <strong>referral</strong> ($1.28).</p>
       </div>
 
       <div class="rec-section">
         <div class="rec-section-label">Recommended Actions</div>
-        <p>Start the product-page audit with
-        YouTube, Apparel, Bags
-        (see Product Category above): review content, pricing and trust signals on
-        their highest-traffic pages. On the channel side, weight acquisition spend
+        <p>Start the merchandising audit with
+        Apparel, Bags, Sale
+        (see Product Category above): review how their products are presented in
+        listings, including images, price and stock. On the channel side, weight acquisition spend
         towards revenue per session, not session volume.</p>
       </div>
 
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Business Impact</div>
-        <p>Lifting the top 3 categories to the 25.0% benchmark adds ~<strong>1,185</strong> carting sessions. At today's 18.3% cart → purchase rate and $79 AOV that is roughly <strong>~217 orders / $17,078</strong> — an upper bound, since category carts and session purchases are not one-to-one.</p>
-        <div class="metric">revenue per session by channel · view → cart in target categories</div>
+        <p>Lifting the top 3 categories to the 19.3% site average adds ~<strong>846</strong> carting sessions. At today's 18.3% cart → purchase rate and $71.18 revenue per purchase that is roughly <strong>~155 orders / $11,033</strong> — an upper bound, since category carts and session purchases are not one-to-one.</p>
+        <div class="metric">revenue per session by channel · seen → carted in target categories</div>
       </div>
     </div>
 
   </div>
 
-  
-  <!-- AI Product Brief -->
-  <p class="section-label">AI-Generated Product Brief
-    <span class="ai-badge">Gemini (gemini-3.5-flash)</span></p>
-  <div class="card">
-    
-    <div class="brief-body"><h3>Executive Summary</h3>
-<p>The primary growth bottleneck on the platform is a drop-off prior to intent: 78.8% of sessions end before a user reaches a single product detail page (PDP), and product pages in high-volume categories like YouTube merch, Apparel, and Bags underperform the category carting benchmark (converting at 15.65%–19.12% vs. the 24.99% benchmark). Fixing top-of-funnel navigation to product discovery and optimizing low-converting PDP elements (imagery, sizing, pricing visibility) will unlock immediate revenue lift. </p>
-<p><em>Note: Findings are derived from a public GA4 sample dataset (Nov 2020 – Jan 2021) and must be validated against internal telemetry before committing engineering resources.</em></p>
-<hr>
-<h3>Key Findings</h3>
-<li><strong>78.8% of site sessions drop off before viewing any product page.</strong> Out of 354,857 total sessions, only 75,261 (21.2%) record a `view_item` event. <em>So what:</em> Users encounter severe discovery friction on entry points. In B2B SaaS, this corresponds to users logging in (`session_start`) but failing to discover key features (`view_item`).</li>
-<li><strong>High-volume product categories severely underperform the 24.99% view-to-cart benchmark.</strong> PDPs for YouTube merchandise (15.65% view-to-cart), Apparel (19.12%), and Bags (17.58%) leave 1,185 cart additions on the table combined. <em>So what:</em> Product detail pages for these specific categories are failing to convert user interest into buying intent due to PDP-specific issues (e.g., pricing, missing sizing info, inadequate imagery, or out-of-stock variants).</li>
-<li><strong>Cart-to-checkout drop-off reaches 65.0%.</strong> Of the 14,870 sessions that reach `add_to_cart`, only 5,205 (35.0%) move to `begin_checkout`. <em>So what:</em> High-intent shoppers are abandoning at the cart stage, pointing to cart drawer friction, unexpected shipping fees, or lack of guest checkout options.</li>
-<li><strong>Referral traffic generates the highest intent and revenue per session.</strong> Referral sessions achieve a 30.28% product view rate, a 1.72% purchase rate, and $1.28 revenue per session—far outperforming Organic traffic (26.32% view rate, 0.90% purchase rate, $0.58 rev/session). <em>So what:</em> External link partners are sending higher-intent traffic; referral entry experiences should be protected and optimized. <em>(Note: CPC and `(not set)` purchase metrics were excluded from comparison due to low volume flags).</em></li>
-<hr>
-<h3>Hypotheses</h3>
-<li><strong>[HIGH] Category PDP Content & Variant Gaps:</strong> Product detail pages for YouTube, Apparel, and Bags lack critical decision-making assets (such as clear size charts, customer reviews, detailed descriptions, or stock availability), causing product-page visitors to abandon before adding to cart.</li>
-<li><strong>[HIGH] Homepage & Category Navigation Disconnect:</strong> The homepage layout and global navigation fail to guide top-of-funnel traffic toward product catalog pages, driving 78.8% of sessions to exit without viewing a single product.</li>
-<li><strong>[MEDIUM] Cart Cost Transparency Shock:</strong> Shoppers use the cart to calculate total order cost; uncalculated shipping fees and taxes inside the cart drawer create friction, driving the 65.0% drop-off between `add_to_cart` and `begin_checkout`.</li>
-<hr>
-<h3>Recommended Actions</h3>
-<li><strong>Optimize PDP Assets for YouTube, Apparel, and Bags Categories</strong></li>
-<p>   * <strong>What to do:</strong> Overhaul product detail pages for these three categories by adding prominent sizing charts, expanded photo galleries, explicit stock availability, and social proof.</p>
-<p>   * <strong>Why:</strong> YouTube (15.65%), Apparel (19.12%), and Bags (17.58%) represent the largest concentration of missed carts (1,185 carts at stake) against the 24.99% benchmark.</p>
-<p>   * <strong>Metric to watch:</strong> Category-specific `view_to_cart_pct` (target: 25.0%+).</p>
-<li><strong>Streamline Top-of-Nav Discovery Paths</strong></li>
-<p>   * <strong>What to do:</strong> Redesign the homepage above-the-fold experience to feature direct category grids, personalized recommendations, and search bar prompts.</p>
-<p>   * <strong>Why:</strong> 78.8% of sessions currently drop off before reaching a product page. (In SaaS terms: improving onboarding flows to move users from login directly into core feature adoption).</p>
-<p>   * <strong>Metric to watch:</strong> `Session Start` -> `View Item` conversion rate (target: 30.0%+ from 21.2%).</p>
-<li><strong>Add Upfront Cost Estimates & Quick-Checkout in the Cart</strong></li>
-<p>   * <strong>What to do:</strong> Implement dynamic shipping calculators within the cart drawer alongside express payment options (e.g., Apple Pay, Shop Pay).</p>
-<p>   * <strong>Why:</strong> 65.0% of carting sessions fail to enter checkout, indicating friction between item selection and purchase initiation.</p>
-<p>   * <strong>Metric to watch:</strong> `Add to Cart` -> `Begin Checkout` conversion rate (target: 45.0%+ from 35.0%).</p>
-<hr>
-<h3>What to Measure Next</h3>
-<li><strong>Cart Interaction & Error Logging:</strong> Run an event-level analysis on cart drawer interactions (promo code field usage, shipping estimation triggers, line-item deletions) to pinpoint why 65.0% of cart sessions fail to begin checkout.</li>
-<li><strong>Traffic Audit on `(not set)` Medium:</strong> Investigate the 92,892 sessions logged as `(not set)` medium (which show a very low 6.68% `view_item` rate) to determine if this represents broken UTM tagging, dark social traffic, or web crawler bots.</li>
-<li><strong>Cross-Sell Potential from Top-Performing Categories:</strong> Analyze basket composition for high-converting PDP categories (e.g., Hats at 40.62% `view_to_cart` and Writing at 40.88%) to evaluate whether bundling them onto underperforming PDPs boosts total cart additions.</li></div>
-  </div>
-  
 
   <!-- ── How the AI brief is produced ───────────────────────────────────── -->
   <!-- Describes what the code actually does: the brief is written in notebook
@@ -4606,8 +4724,8 @@ return Plotly;
             dashboard.html → Stakeholders
           </p>
           <p style="margin-top:14px;font-size:0.83rem;color:#374151">
-            Change <code>DATE_START</code>, <code>DATE_END</code> and <code>DATASET</code>
-            at the top of the script and run
+            Set <code>GA4_DATASET</code>, <code>GA4_DATE_START</code> and
+            <code>GA4_DATE_END</code> (read by <code>config.py</code>) and run
             <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>
             to recompute every query, chart and number on this page. Re-run notebook
             Section 10 to refresh the brief. The script step can be scheduled; the
@@ -4659,7 +4777,7 @@ return Plotly;
           <td>add_to_cart</td>
           <td>Feature first use — attempting the core action</td>
           <td>Activation attempt rate</td>
-          <td class="rate">19.7% of product viewers</td>
+          <td class="rate">19.7% of sessions that saw products</td>
         </tr>
         <tr>
           <td>begin_checkout</td>
@@ -4671,11 +4789,11 @@ return Plotly;
           <td>purchase</td>
           <td>Activation — completing the key value moment</td>
           <td>Activation rate</td>
-          <td class="rate">0.80% of all sessions</td>
+          <td class="rate">0.77% of all sessions</td>
         </tr>
         <tr>
-          <td>Week-1 retention</td>
-          <td>D7 retention — returning within 7 days of first login</td>
+          <td>Week-1 return</td>
+          <td>Closest to D7 retention — but this is calendar-week return (1–13 days), not exactly 7 days</td>
           <td>Early retention</td>
           <td class="rate">4.2% avg across cohorts</td>
         </tr>
@@ -4683,66 +4801,135 @@ return Plotly;
     </table>
   </div>
 
+
+  <p class="section-label">Appendix</p>
+  <details class="card appendix">
+    <summary><span class="ai-badge">Gemini (gemini-3.5-flash)</span> AI-generated product brief
+      <span class="appendix-sub">written by an LLM from the computed results above;
+      where they differ, the computed sections are correct</span></summary>
+    <div class="appendix-body">
+      
+      <div class="brief-body"><h3>Executive Summary</h3>
+<p>The primary funnel leak occurs during initial product discovery, where 78.8% of sessions drop off before seeing products (in B2B SaaS, equivalent to dropping off between login and feature discovery). The channel spread leans toward a site-level navigation issue rather than traffic quality, complemented by significant post-intent cart abandonment where 65.0% of carting sessions fail to enter checkout. Note that these findings are derived from an obfuscated public sample dataset (GA4 Nov 2020 – Jan 2021) and require validation on production data.</p>
+<h3>Key Findings</h3>
+<ol>
+<li><strong>Product discovery is the largest absolute leak in the funnel.</strong>
+ Out of 354,857 total sessions, only 75,261 reach the step where users saw products (21.2% step conversion rate), resulting in a drop-off of 279,596 sessions (78.8%). In B2B SaaS terms, this represents a failure to move users from initial session start (login) to feature discovery.
+<ul>
+<li><strong>So what:</strong> Acquisition channels are driving users to the site, but the initial navigation or landing experience fails to surface products to the vast majority of visitors.
+</li>
+</ul>
+</li>
+<li><strong>Severe cart abandonment accounts for the largest post-intent loss.</strong>
+ Of the 14,870 sessions that added an item to cart, only 5,205 proceeded to checkout—a step conversion rate of 35.0%, leaving a 65.0% drop-off rate (9,665 sessions).
+<ul>
+<li><strong>So what:</strong> Users demonstrate explicit buying intent by adding items to their cart, but friction in the cart experience prevents nearly two-thirds from beginning checkout.
+</li>
+</ul>
+</li>
+<li><strong>12 product categories underperform the site average listing conversion rate.</strong>
+ 12 of 23 ranked categories sit below the 19.3% site average seen-to-carted rate with 95% confidence. The top three by carts at stake are Apparel (14.1% seen-to-carted rate, 345 carts at stake, CI [13.2%, 14.9%]), Bags (13.6% seen-to-carted rate, 273 carts at stake, CI [12.7%, 14.6%]), and Sale (17.0% seen-to-carted rate, 228 carts at stake, CI [16.3%, 17.8%]), representing 846 carts at stake together out of 2,204 across all 12 flagged categories.
+<ul>
+<li><strong>So what:</strong> Poor listing-level conversion across major catalog categories directly suppresses overall cart additions without affecting neutral categories.
+</li>
+</ul>
+</li>
+<li><strong>Returning sessions convert at over four times the rate of new sessions.</strong>
+ Returning sessions achieve a session-to-purchase rate of 1.7% (CI [1.6%, 1.8%]) compared to 0.4% for new sessions (CI [0.4%, 0.4%]), a ratio of 4.1x (chi-square p &lt; 0.001). However, the average Week-1 return rate sits at 4.2% against an 8.0% planning target assumption.
+<ul>
+<li><strong>So what:</strong> Bringing existing visitors back represents a higher-converting pool of traffic, though current week-1 retention trails target planning expectations.
+</li>
+</ul>
+</li>
+</ol>
+<h3>Hypotheses</h3>
+<ol>
+<li><strong>[MEDIUM confidence — The initial discovery leak stems from site navigation rather than acquisition traffic quality.</strong>
+<ul>
+<li><strong>Evidence:</strong> The session medium spread in product view rates is 8.7pp (ranging from referral at 30.3% to CPC at 21.6%), which sits below the 10pp analyst-set threshold used to indicate a traffic-quality problem, leaning the verdict toward a site-level leak.
+</li>
+<li><strong>Confounder:</strong> Very short, untagged sessions labeled <code>(not set)</code> represent 26.2% of total sessions and account for 31.0% of the discovery loss; because these sessions lack tag context, their intent cannot be fully ruled out.
+</li>
+</ul>
+</li>
+<li><strong>[MEDIUM confidence — Product listing layout and presentation drive underperformance in flagged categories.</strong>
+<ul>
+<li><strong>Evidence:</strong> 12 of 23 categories perform below the 19.3% site average seen-to-carted rate with 95% confidence, led by Apparel (14.1%) and Bags (13.6%).
+</li>
+<li><strong>Confounder:</strong> Price and listing composition: median listed price exhibits a weak negative correlation with seen-to-carted rate (-0.33, p = 0.123), meaning cheaper item impulse buying is not ruled out, and categories displayed in broad, mixed lists are seen by less focused sessions than dedicated listings.
+</li>
+</ul>
+</li>
+<li><strong>[MEDIUM confidence — Increasing cohort return rates will increase overall purchase volume.</strong>
+<ul>
+<li><strong>Evidence:</strong> Returning sessions convert at 1.7% compared to 0.4% for first-time sessions (p &lt; 0.001), and reaching the 8.0% planning target would add 9,444 returning sessions generating an estimated $2.6k–$12.0k in revenue (planning assumption estimate).
+</li>
+<li><strong>Confounder:</strong> Self-selection bias: users who return unprompted possess higher inherent buying intent, so re-engaging passive users may not achieve the full 4.1x conversion multiplier of organic returning sessions.
+</li>
+</ul>
+</li>
+</ol>
+<h3>Recommended Actions</h3>
+<ol>
+<li><strong>Audit homepage and landing page product navigation.</strong>
+<ul>
+<li><strong>What:</strong> Redesign top-level listing access and review CPC landing page layouts to decrease friction between session start and product display lists.
+</li>
+<li><strong>Why:</strong> 78.8% of sessions (279,596 sessions) fail to view products, and the 8.7pp channel spread leans toward a site navigation issue.
+</li>
+<li><strong>Metric:</strong> Lift the overall session-to-product-view conversion rate above the current 21.2%.
+</li>
+</ul>
+</li>
+<li><strong>Optimize listing views for underperforming catalog categories.</strong>
+<ul>
+<li><strong>What:</strong> Re-merchandise and improve listing layout presentations for Apparel, Bags, and Sale.
+</li>
+<li><strong>Why:</strong> These three categories account for 846 carts at stake (Apparel at 14.1%, Bags at 13.6%, Sale at 17.0% seen-to-carted rates versus the 19.3% site average).
+</li>
+<li><strong>Metric:</strong> Increase seen-to-carted rates for Apparel, Bags, and Sale toward the 19.3% site average (planning assumption).
+</li>
+</ul>
+</li>
+<li><strong>Deploy re-engagement workflows to improve retention.</strong>
+<ul>
+<li><strong>What:</strong> Implement post-session email and message touchpoints to encourage week-1 return visits.
+</li>
+<li><strong>Why:</strong> Returning sessions convert at 1.7% versus 0.4% for new sessions, while week-1 return rates currently sit at 4.2%.
+</li>
+<li><strong>Metric:</strong> Increase average Week-1 return rate toward the 8.0% planning target assumption, aiming for 9,444 extra returning sessions.
+</li>
+</ul>
+</li>
+</ol>
+<h3>What to Measure Next</h3>
+<ol>
+<li><strong>User-scoped cross-session funnel analysis:</strong> Map user IDs across multiple visits to determine how many of the 2,127 purchasing sessions occurring outside the sequential funnel represent multi-session user journeys where carts were populated in earlier visits.
+</li>
+<li><strong>List position and impression depth tracking:</strong> Evaluate whether the lower seen-to-carted conversion rates in Apparel and Bags are caused by item position depth in search and category list pages.
+</li>
+<li><strong>Short-session landing page technical audit:</strong> Analyze technical load logs and exit URLs specifically for <code>(not set)</code> untagged traffic to confirm whether missing medium tags correlate with immediate page bounces or broken tracking scripts.
+</li>
+</ol></div>
+    </div>
+  </details>
+
+
   <!-- Footer -->
   <div class="footer">
     <strong>Methodology</strong><br>
     Session-scoped funnel: each row is a unique (user_pseudo_id, ga_session_id) pair extracted
     from event_params. Sequential constraint: a session is counted at step N only if it reached
-    step N−1 first within the same session. This matches GA4 UI funnel behaviour and avoids
-    inflating conversion by attributing past-purchase behaviour to new sessions.<br><br>
+    step N−1 first within the same session. This matches a closed funnel in the GA4 UI and avoids
+    inflating conversion by attributing past-purchase behaviour to new sessions. The cost is
+    that purchases whose cart was filled in an earlier session are not counted (see Data quality).<br><br>
     <strong>Data note</strong><br>
-    Source: Google's public obfuscated GA4 e-commerce sample dataset.
-    Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention
-    methodology are valid. The same SQL applies directly to any GA4 BigQuery export.<br><br>
+    Source: Google's public obfuscated GA4 e-commerce sample dataset. Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention methodology are valid.
+    The same SQL applies directly to any GA4 BigQuery export.<br><br>
     Python 3.13.13 · Plotly 6.7.0
   </div>
 
 </div>
-
-<script>
-(function() {
-  function patchCharts() {
-
-    // Cohort heatmap needs no patch — colourscale, zmin/zmax, gap handling and
-    // hover template are all set in Python at render time.
-
-    // TTC chart — Plotly's float64 bdata encoding corrupts near-zero values,
-    // so restyle with the authoritative medians straight from the query.
-    var ttcDiv = document.getElementById('chart-ttc');
-    if (ttcDiv && ttcDiv.data && ttcDiv.data.length) {
-      var p50sv = 0.02;
-      var p50vc = 0.0;
-      var p50ck = 0.11;
-      var p50kp = 0.06;
-      // Clamp near-zero values so bars remain visible
-      var yVals = [p50sv, Math.max(p50vc, 0.001), p50ck, p50kp];
-      var labels = [p50sv+'h', p50vc < 0.001 ? '< 1 sec' : p50vc+'h', p50ck+'h', p50kp+'h'];
-      Plotly.restyle('chart-ttc', {
-        x: [['Session → View Item','View Item → Add to Cart','Add to Cart → Checkout','Checkout → Purchase']],
-        y: [yVals],
-        text: [labels],
-        texttemplate: ['%{text}'],
-        'marker.color': ['#4C78A8'],
-        hovertemplate: ['<b>%{x}</b><br>Median time: %{customdata}<extra></extra>'],
-        customdata: [[
-          '~' + Math.round(p50sv*60) + ' min',
-          p50vc < 0.001 ? '< 1 sec (decisive shoppers add to cart immediately)' : '~' + Math.round(p50vc*60) + ' min',
-          '~' + Math.round(p50ck*60) + ' min',
-          '~' + Math.round(p50kp*60) + ' min'
-        ]]
-      }, [0]);
-      Plotly.relayout('chart-ttc', {
-        'xaxis.tickangle': -15,
-        'yaxis.title.text': 'Median hours',
-        coloraxis: null
-      });
-    }
-  }
-
-  if (document.readyState === 'complete') { patchCharts(); }
-  else { window.addEventListener('load', patchCharts); }
-})();
-</script>
 
 </body>
 </html>
