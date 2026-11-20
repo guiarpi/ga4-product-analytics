@@ -97,3 +97,21 @@ def test_dashboard_queries_list_matches_what_it_runs():
                   if isinstance(node, ast.Assign)
                   and getattr(node.targets[0], "id", None) == "DASHBOARD_QUERIES")
     assert called == listed
+
+
+def test_multi_row_results_have_a_total_order():
+    # Ties in ORDER BY let BigQuery return rows in any order, which reorders
+    # notebook tables and the saved brief context between identical runs.
+    expected = {
+        "device_funnel_sql":   "ORDER BY sessions DESC, device_category",
+        "channel_funnel_sql":  "ORDER BY session_medium, first_touch_medium",
+        "event_inventory_sql": "ORDER BY event_count DESC, event_name",
+        "event_quality_sql":   "ORDER BY event_name DESC",
+        "category_sql":        "ORDER BY viewing_sessions DESC, item_category",
+        "session_quality_sql": "ORDER BY cut, size_bucket, dev, attributed, visitor",
+        "cohort_sql":          "ORDER BY f.cohort_week, weeks_since_cohort",
+    }
+    sqls = all_query_sql()
+    for name, clause in expected.items():
+        assert clause in sqls[name], name
+    assert "ORDER BY event_timestamp, medium LIMIT 1" in queries.session_attrs_cte(*W)

@@ -59,7 +59,7 @@ def session_attrs_cte(dataset: str, start: str, end: str) -> str:
     """
     return f"""session_attrs AS (
   SELECT user_pseudo_id, session_id,
-    ARRAY_AGG(medium IGNORE NULLS ORDER BY event_timestamp LIMIT 1)[SAFE_OFFSET(0)] AS session_medium,
+    ARRAY_AGG(medium IGNORE NULLS ORDER BY event_timestamp, medium LIMIT 1)[SAFE_OFFSET(0)] AS session_medium,
     COUNT(*) AS n_events,
     COUNTIF(medium IS NOT NULL) AS n_medium,
     COUNTIF(event_name = 'page_view') AS n_page_view,
@@ -192,7 +192,9 @@ FROM (
     COUNTIF(revenue > 0) AS orders_with_revenue,
     ROUND(SUM(revenue),2) AS total_revenue,
     ROUND(AVG(IF(revenue > 0, revenue, NULL)),2) AS avg_order_value,
-    ROUND(ANY_VALUE(med_order),2) AS median_order_value
+    ROUND(ANY_VALUE(med_order),2) AS median_order_value,
+    ROUND(MIN(IF(revenue > 0, revenue, NULL)),2) AS min_order_value,
+    ROUND(MAX(IF(revenue > 0, revenue, NULL)),2) AS max_order_value
   FROM (
     -- Exact median (PERCENTILE_CONT ignores the NULLs, i.e. zero-revenue orders)
     SELECT *, PERCENTILE_CONT(IF(revenue > 0, revenue, NULL), 0.5) OVER () AS med_order
@@ -259,6 +261,7 @@ SELECT
        ELSE ANY_VALUE(ev_a) END AS median_events
 FROM g
 GROUP BY GROUPING SETS ((attributed), (size_bucket, attributed), (dev, attributed), (visitor))
+ORDER BY cut, size_bucket, dev, attributed, visitor
 """
 
 
@@ -311,7 +314,7 @@ def session_funnel_sql(dataset: str, start: str, end: str) -> str:
 def device_funnel_sql(dataset: str, start: str, end: str) -> str:
     """The same funnel by device.category."""
     return funnel_sql(dataset, start, end, event_dims={"device_category": "device.category"},
-                      group_by={"device_category": "device_category"}, order_by="sessions DESC")
+                      group_by={"device_category": "device_category"}, order_by="sessions DESC, device_category")
 
 
 def channel_funnel_sql(dataset: str, start: str, end: str) -> str:
@@ -321,7 +324,8 @@ def channel_funnel_sql(dataset: str, start: str, end: str) -> str:
     return funnel_sql(dataset, start, end, revenue=True, attributes=True,
                       event_dims={"first_touch_medium": "traffic_source.medium"},
                       group_by={"session_medium": "COALESCE(session_medium, '(not set)')",
-                                "first_touch_medium": "COALESCE(first_touch_medium, '(not set)')"})
+                                "first_touch_medium": "COALESCE(first_touch_medium, '(not set)')"},
+                      order_by="session_medium, first_touch_medium")
 
 
 def shoppers_funnel_sql(dataset: str, start: str, end: str) -> str:
@@ -349,7 +353,7 @@ def event_inventory_sql(dataset: str, start: str, end: str) -> str:
   COUNT(DISTINCT user_pseudo_id) AS unique_users
 FROM {events_from(dataset, start, end)}
 GROUP BY event_name
-ORDER BY event_count DESC
+ORDER BY event_count DESC, event_name
 """
 
 
@@ -371,6 +375,7 @@ def event_quality_sql(dataset: str, start: str, end: str) -> str:
 FROM {events_from(dataset, start, end)}
   AND event_name IN ('view_item', 'add_to_cart')
 GROUP BY event_name
+ORDER BY event_name DESC   -- view_item, then add_to_cart (funnel order)
 """
 
 
@@ -446,7 +451,7 @@ price AS (
 )
 SELECT agg.*, labels.n_source_labels, labels.source_labels, price.median_price
 FROM agg JOIN labels USING (item_category) LEFT JOIN price USING (item_category)
-ORDER BY viewing_sessions DESC
+ORDER BY viewing_sessions DESC, item_category
 """
 
 
