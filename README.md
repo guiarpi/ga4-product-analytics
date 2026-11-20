@@ -1,5 +1,7 @@
 # GA4 Product Funnel Analysis
 
+[![tests](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml/badge.svg)](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml)
+
 End-to-end product analytics project built on Google Analytics 4 (GA4) data in BigQuery. Covers session-scoped funnel analysis, revenue metrics, device and acquisition-channel segmentation, product-category conversion, time-to-convert, shoppers funnel, weekly cohort retention, and an AI-generated product brief — all in Python.
 
 **Dataset:** [`bigquery-public-data.ga4_obfuscated_sample_ecommerce`](https://console.cloud.google.com/bigquery?p=bigquery-public-data&d=ga4_obfuscated_sample_ecommerce) · Nov 2020 – Jan 2021
@@ -160,6 +162,15 @@ python generate_dashboard.py
 ```
 
 Opens as `dashboard.html` — a fully self-contained file (~5 MB, plotly.js embedded) with no runtime or network dependencies. If `product_brief_ga4_funnel.md` exists (generated in Section 10 of the notebook), it will be embedded in the dashboard automatically.
+
+### Run the tests
+
+```bash
+pip install -r requirements.txt -r requirements-dev.txt
+python -m pytest -q
+```
+
+The suite needs no BigQuery access, credentials or network. It checks the SQL builders, statistics, category flags, templates and config validation. GitHub Actions runs it, with a pyflakes lint, on Python 3.11–3.13 for every push and pull request.
 
 ---
 

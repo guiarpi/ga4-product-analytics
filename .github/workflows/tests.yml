@@ -1,0 +1,46 @@
+# Offline checks on every push and pull request: lint and the pytest suite.
+# No BigQuery, no credentials, no secrets: the tests check the SQL builders,
+# statistics, templates and config validation without any network access.
+# Regenerating dashboard.html needs BigQuery and stays a local step.
+name: tests
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: tests-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt -r requirements-dev.txt
+
+      - name: Lint (pyflakes)
+        run: python -m pyflakes *.py tests
+
+      - name: Run tests
+        run: python -m pytest -q
