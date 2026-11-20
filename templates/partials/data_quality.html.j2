@@ -1,0 +1,74 @@
+{#- Stated near the top because these facts change how the headline numbers may
+    be read. Every figure is computed in this run. -#}
+  <p class="section-label">Data quality — read before the numbers</p>
+  <div class="card dq-card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <h4 class="dq-h">1 · A quarter of sessions have no channel tag — a tagging gap, not bots</h4>
+        <p><strong>{{ ua_sessions|fmt(',') }} sessions ({{ ua_share|fmt('.1f') }}%)</strong> carry no session-level
+        <code>medium</code> on any event. In channel tables they appear as
+        <code>(not set)</code>. They see a product in only <strong>{{ ua_view_pct|fmt('.1f') }}%</strong>
+        of cases (attributed: {{ at_view_pct|fmt('.1f') }}%) and account for
+        <strong>{{ ua_lost_share|fmt('.0f') }}%</strong> of the {{ total_lost_discovery|fmt(',') }} sessions that
+        never see a product.</p>
+        <p>They don't look like bots: {{ ua_pv_pct|fmt('.0f') }}% have a <code>page_view</code>
+        (attributed: {{ at_pv_pct|fmt('.0f') }}%), and {{ (('every device has the same unattributed share (' ~ ua_dev_min|fmt('.1f') ~ '%)') if ((ua_dev_min|fmt('.1f')) == (ua_dev_max|fmt('.1f'))) else ('the unattributed share barely varies by device (' ~ ua_dev_min|fmt('.1f') ~ '–' ~ ua_dev_max|fmt('.1f') ~ '%)')) }}.
+        They are <em>short</em>: median
+        {{ ua_med_ev }} events and {{ ua_med_eng|fmt('.0f') }}s engaged, against {{ at_med_ev }} events and
+        {{ at_med_eng|fmt('.0f') }}s. The tag sits on only some events, so the fewer events a
+        session has, the likelier it has none. <strong>At the same session length, view
+        rates are close</strong> (table): the low rate is a session-length effect, not a
+        different kind of traffic.</p>
+        <p><strong>So all sessions stay the primary view.</strong> Dropping the block would
+        remove short sessions selectively and flatter every rate. The right-hand column is a
+        sensitivity check only.</p>
+      </div>
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Session length</th><th>Sessions</th><th>Unattributed</th>
+            <th>Saw product · unattr.</th><th>· attributed</th></tr></thead>
+          <tbody>
+{% for r in dq_buckets -%}
+<tr><td class="dev-name">{{ r.bucket }} events</td><td>{{ r.sessions|int|fmt(',') }}</td><td>{{ r.ua_pct|fmt('.1f') }}%</td><td>{{ r.view_ua|fmt('.1f') }}%</td><td>{{ r.view_at|fmt('.1f') }}%</td></tr>
+{% endfor %}
+          </tbody>
+        </table>
+        <table class="dev-table" style="margin-top:22px">
+          <thead><tr><th>Funnel</th><th>All sessions · primary</th>
+            <th>Excl. (not set) · biased up</th></tr></thead>
+          <tbody>
+{% for label, key, f in [("Sessions", "sessions", "{:,}"), ("Saw a product", "view_pct", "{:.1f}%"),
+                          ("Saw → carted", "view_to_cart", "{:.1f}%"), ("Cart → checkout", "cart_to_checkout", "{:.1f}%"),
+                          ("Checkout → purchase", "checkout_to_purchase", "{:.1f}%"), ("Session → purchase", "cvr", "{:.2f}%"),
+                          ("Revenue / session", "rev_per_session", "${:,.2f}")] -%}
+<tr><td class="dev-name">{{ label }}</td><td class="dev-key">{{ f.format(sens_all[key]) }}</td><td>{{ f.format(sens_ex[key]) }}</td></tr>
+{% endfor %}
+          </tbody>
+        </table>
+      </div>
+    </div>
+    <div class="two-col dq-foot" style="gap:28px">
+      <div>
+        <h4 class="dq-h">2 · "View item" means "saw products", usually on a listing</h4>
+        <p>{{ vi_multi_pct|fmt('.0f') }}% of <code>view_item</code> events carry several products
+        (avg {{ vi_avg_items|fmt('.1f') }}), which makes them list impressions, not product-page views.
+        So this page counts sessions that <em>saw</em> products, not ones that opened a
+        product page.
+        <code>add_to_cart</code> also fires from listings, with the whole list attached (avg
+        {{ atc_avg_items|fmt('.0f') }} items); only the item with a quantity was carted
+        ({{ atc_one_pct|fmt('.0f') }}% of events have exactly one), and category figures use that item
+        only.</p>
+      </div>
+      <div>
+        <h4 class="dq-h">3 · Revenue covers funnel purchases only</h4>
+        <p>The funnel counts a purchase only if the session went through every step in order
+        (<em>sequential</em>). That gives {{ purchase_n|fmt(',') }} purchases and
+        ${{ total_revenue|fmt(',.0f') }}. {{ orders_no_rev|fmt(',') }} of them record no revenue, so the
+        ${{ aov|fmt(',.2f') }} AOV averages the {{ orders_with_rev|fmt(',') }} that do, and revenue per purchase is
+        ${{ rev_per_purchase|fmt(',.2f') }}. Across all sessions, {{ all_purch_sess|fmt(',') }} include a purchase
+        (${{ all_revenue|fmt(',.0f') }}). Of the {{ (all_purch_sess - purchase_n)|fmt(',') }} left out,
+        {{ purch_no_cart|fmt(',') }} have no add-to-cart in that session, which usually means the cart
+        was filled in an earlier visit.</p>
+      </div>
+    </div>
+  </div>

@@ -1,0 +1,7 @@
+{% if category_top_targets %}
+<p>A category is flagged as <strong>underperforming</strong> only when its whole 95% confidence interval lies below the {{ category_benchmark|fmt('.1f') }}% site average (all ranked categories pooled): <strong>{{ category_n_below }}</strong> of {{ n_categories }} are, {{ category_n_above }} sit clearly above, and {{ category_n_neutral }} cannot be told apart from average (grey). With {{ n_categories }} intervals at 95%, about {{ (n_categories * 0.05)|fmt('.0f') }} flag(s) could be chance, so treat the list as a shortlist.</p>
+<p>Ranked by <strong>carts at stake</strong> — the extra carting sessions a flagged category would gain at the site average — the audit should start with {% for c in category_top_targets %}<strong>{{ c }}</strong>{% if not loop.last %}, {% endif %}{% endfor %}. Together they account for <strong>{{ category_top3_at_stake|fmt(',') }}</strong> of the <strong>{{ category_total_at_stake|fmt(',') }}</strong> carts at stake across flagged categories.</p>
+<p>Ranking by volume × gap, not by rate alone, stops a niche category with a dramatic rate from jumping the queue ahead of a high-traffic category with a moderate gap.</p>
+{% else %}
+<p>No ranked category's 95% interval lies entirely below the site average — the seen → carted drop is spread evenly across the catalogue rather than concentrated in specific categories.</p>
+{% endif %}

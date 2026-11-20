@@ -1,0 +1,3 @@
+{% for r in category_rows -%}
+<tr><td class="dev-name">{{ r.item_category }}{% if r.n_source_labels > 1 %}<div style="font-size:0.7rem;font-weight:400;color:#9ca3af;text-transform:none">merged: {{ r.source_labels }}</div>{% endif %}</td><td>{{ r.viewing_sessions|int|fmt(',') }}</td><td>{{ r.carting_sessions|int|fmt(',') }}</td><td class="dev-key">{{ r.atc_pct|fmt('.1f') }}%</td><td class="ci">{{ r.ci_lo|fmt('.1f') }}–{{ r.ci_hi|fmt('.1f') }}%</td><td>{% if r.status == "below" %}<span class="flag-below">below</span>{% elif r.status == "above" %}<span class="flag-above">above</span>{% else %}<span class="flag-neutral">≈ average</span>{% endif %}</td><td>{{ r.carts_at_stake|int|fmt(',') }}</td></tr>
+{% endfor %}

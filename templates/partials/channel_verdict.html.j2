@@ -1,0 +1,20 @@
+{#- The conclusion flips on the 10pp threshold (an analyst-set assumption);
+    7–10pp is reported as borderline. -#}
+{% if channel_is_driver %}
+<p><strong>Traffic mix is a real driver.</strong> The share of sessions that saw a product ranges from <strong>{{ worst_view_pct|fmt('.1f') }}%</strong> ({{ worst_view_channel }}) to <strong>{{ best_view_pct|fmt('.1f') }}%</strong> ({{ best_view_channel }}) — a <strong>{{ channel_view_spread|fmt('.1f') }}pp</strong> spread. Part of the discovery loss is who is arriving, not only what they find.</p>
+<p>Before redesigning navigation, check what the {{ worst_view_channel }} landing experience promises versus what the site shows on arrival.</p>
+{% elif channel_borderline %}
+<p><strong>Leaning site, not traffic — but borderline.</strong> The spread between {{ worst_view_channel }} ({{ worst_view_pct|fmt('.1f') }}%) and {{ best_view_channel }} ({{ best_view_pct|fmt('.1f') }}%) is <strong>{{ channel_view_spread|fmt('.1f') }}pp</strong>: under the 10pp threshold, but close to it. Every channel still loses at least {{ (100 - best_view_pct)|fmt('.0f') }}% of its sessions before they see a product, so navigation / discovery remains the leading explanation rather than a settled one.</p>
+<p>Cheap check before committing to a navigation redesign: review the {{ worst_view_channel }} landing pages against what its ads promise.</p>
+{% else %}
+<p><strong>The leak is on the site, not in the traffic.</strong> No channel is an outlier on product reach: the spread between {{ best_view_channel }} ({{ best_view_pct|fmt('.1f') }}%) and {{ worst_view_channel }} ({{ worst_view_pct|fmt('.1f') }}%) is <strong>{{ channel_view_spread|fmt('.1f') }}pp</strong>, well under the 10pp threshold — and every channel loses at least {{ (100 - best_view_pct)|fmt('.0f') }}% of its sessions before they see a product.</p>
+<p>This supports the navigation / discovery hypothesis: reallocating acquisition budget would not fix a loss that happens equally to every visitor once they land.</p>
+{% endif %}
+{%- if notset_view_pct is not none and notset_share >= 1 %}
+<p><strong>(not set)</strong> = sessions with no session-level medium ({{ notset_share|fmt('.1f') }}% of sessions). They see a product in <strong>{{ notset_view_pct|fmt('.1f') }}%</strong> of cases and are excluded from the spread. This is a tagging gap that hits short sessions hardest, not a channel{% if notset_below_all %}; it is why the site average ({{ view_rate|fmt('.1f') }}%) sits below every named channel{% endif %} (see Data quality above). Because short sessions drop into (not set), every named channel's rate is somewhat inflated.</p>
+{% endif %}
+{%- if channel_test.cramers_v < 0.1 %}
+<p><strong>Significant, but that is not the question.</strong> A chi-square test across the named channels gives {{ channel_test.p|pval }} (χ² = {{ channel_test.chi2|fmt(',.0f') }}, {{ channel_test.dof }} df) — {% if channel_test.p < 0.05 %}with this many sessions almost any gap is statistically significant. {% else %}the channel gaps are within sampling noise. {% endif %}Whether the leak is the site or the traffic is a question of <em>practical</em> size (the 10pp threshold), not of significance; the effect size is small (Cramér's V = {{ channel_test.cramers_v|fmt('.3f') }}).</p>
+{% else %}
+<p><strong>Significance.</strong> Chi-square across named channels: {{ channel_test.p|pval }} (Cramér's V = {{ channel_test.cramers_v|fmt('.3f') }}). The verdict still rests on the practical 10pp threshold, not on significance.</p>
+{% endif %}

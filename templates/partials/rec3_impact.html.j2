@@ -1,0 +1,9 @@
+{#- Must agree with the channel verdict: budget reallocation is argued only when
+    channel IS the driver; otherwise the impact is sized from the category gap. -#}
+{% if channel_is_driver -%}
+Reallocating even 20% of acquisition budget from low- to high-converting channels could improve overall CVR without increasing total spend.
+{%- elif category_top_targets -%}
+Lifting the top {{ category_top_targets|length }} categories to the {{ category_benchmark|fmt('.1f') }}% site average adds ~<strong>{{ category_top3_at_stake|fmt(',') }}</strong> carting sessions. At today's {{ (cart_to_purchase * 100)|fmt('.1f') }}% cart → purchase rate and ${{ rev_per_purchase|fmt(',.2f') }} revenue per purchase that is roughly <strong>~{{ cat_orders|fmt(',') }} orders / ${{ cat_revenue|fmt(',.0f') }}</strong> — an upper bound, since category carts and session purchases are not one-to-one.
+{%- else -%}
+No category sits meaningfully below the site average, so the remaining lever is weighting spend towards revenue per session.
+{%- endif %}

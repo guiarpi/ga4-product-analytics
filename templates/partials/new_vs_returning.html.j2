@@ -1,0 +1,36 @@
+{% if has_visitor_split %}
+  <p class="section-label">New vs Returning Sessions</p>
+  <div class="card">
+    <div class="two-col" style="gap:28px">
+      <div>
+        <table class="dev-table">
+          <thead><tr><th>Funnel</th><th>New (session 1)</th><th>Returning</th></tr></thead>
+          <tbody>
+{% for label, key, f in [("Sessions", "sessions", "{:,}"), ("Saw a product", "view_pct", "{:.1f}%"),
+                          ("Saw → carted", "view_to_cart", "{:.1f}%"), ("Cart → checkout", "cart_to_checkout", "{:.1f}%"),
+                          ("Checkout → purchase", "checkout_to_purchase", "{:.1f}%"), ("Session → purchase", "cvr", "{:.2f}%"),
+                          ("Revenue / session", "rev_per_session", "${:,.2f}")] -%}
+<tr><td class="dev-name">{{ label }}</td><td>{{ f.format(vs_new[key]) }}</td><td>{{ f.format(vs_ret[key]) }}</td></tr>
+{% endfor %}
+<tr><td class="dev-name">95% CI (purchase)</td><td class="ci">{{ vs_new.ci[0]|fmt('.2f') }}–{{ vs_new.ci[1]|fmt('.2f') }}%</td><td class="ci">{{ vs_ret.ci[0]|fmt('.2f') }}–{{ vs_ret.ci[1]|fmt('.2f') }}%</td></tr>
+          </tbody>
+        </table>
+      </div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>A session is <strong>new</strong> when GA4's <code>ga_session_number</code> is 1 (the
+        user's first session ever on that device/browser), otherwise <strong>returning</strong>.
+        Returning sessions are {{ ((vs_ret['sessions'] / (vs_new['sessions'] + vs_ret['sessions'])) * 100)|fmt('.0f') }}% of
+        traffic but buy at <strong>{{ vs_ret['cvr']|fmt('.2f') }}%</strong> against
+        {{ vs_new['cvr']|fmt('.2f') }}% — <strong>{{ visitor_cvr_ratio|fmt('.1f') }}×</strong> — and earn
+        ${{ vs_ret['rev_per_session']|fmt(',.2f') }} per session against ${{ vs_new['rev_per_session']|fmt(',.2f') }}
+        (χ² {{ visitor_test.p|pval }}). They do better at every step, the largest gap being
+        checkout → purchase ({{ vs_ret['checkout_to_purchase']|fmt('.0f') }}% vs
+        {{ vs_new['checkout_to_purchase']|fmt('.0f') }}%).</p>
+        <p class="caveat-note">This is not the effect of coming back. Users who return
+        unprompted were already keener, so re-engaged users are priced between the two
+        rates in Recommendation 2, not at the returning rate.</p>
+      </div>
+    </div>
+  </div>
+{% endif %}

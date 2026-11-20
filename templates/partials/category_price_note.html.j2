@@ -1,0 +1,5 @@
+{#- Price as a confounder: reported either way — a weak correlation means price
+    cannot explain the ranking on its own, not that price is irrelevant. -#}
+{% if category_price_rho is not none -%}
+<p class="caveat-note"><strong>Price is not controlled.</strong> Across ranked categories, median listed price and seen → carted rate have a rank correlation of {{ category_price_rho|fmt('+.2f') }} ({{ category_price_p|pval }}). {% if category_price_p >= 0.05 %}That is too weak to explain the ranking on its own, but cheap categories may still be an easier yes, so a low rate is not proof of a presentation problem.{% else %}Cheaper categories convert better, so part of each gap may be price, not presentation.{% endif %}</p>
+{%- endif %}

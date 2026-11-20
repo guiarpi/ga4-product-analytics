@@ -1,0 +1,3 @@
+{% for r in channel_rows -%}
+<tr><td class="dev-name">{{ r.channel }}</td><td>{{ r.sessions|int|fmt(',') }}</td><td>{{ r.share|fmt('.1f') }}%</td><td class="dev-key">{{ r.view_pct|fmt('.1f') }}%</td><td>{% if r.cart_from_view is none %}—{% else %}{{ r.cart_from_view|fmt('.1f') }}%{% endif %}</td><td>{{ r.purch_pct|fmt('.2f') }}%{% if r.low_n %} <span title="fewer than 30 purchases">*</span>{% endif %}</td><td>${{ r.rev_per_session|fmt(',.2f') }}</td></tr>
+{% endfor %}

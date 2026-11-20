@@ -1,0 +1,5 @@
+{% if channel_dim == "session_medium" -%}
+Channel = the session's own medium, taken from <code>event_params</code>; <code>(none)</code> is GA4's label for direct traffic. The 10pp decision threshold is an analyst-set assumption ({{ (10 / view_rate * 100)|fmt('.0f') }}% of the site's {{ view_rate|fmt('.1f') }}% product-view rate), not an industry standard.
+{%- else -%}
+Session-level medium covered only {{ (session_medium_coverage * 100)|fmt('.0f') }}% of sessions, so channel falls back to the user's <strong>first-touch</strong> medium (<code>traffic_source.medium</code>) — returning sessions inherit their first channel.
+{%- endif %}

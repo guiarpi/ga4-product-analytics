@@ -1,0 +1,6 @@
+{#- Rendered as the partial-week caveat only when the window opens mid-week. -#}
+{% if partial_first and first_full_n -%}
+<p><strong>1 · The first cohort is a partial week.</strong> Cohorts are Monday-anchored, but the data window opens on {{ window_start.strftime("%d %b %Y") }} — a {{ window_start.strftime("%A") }}. The {{ partial_label }} bucket therefore captures only <strong>{{ partial_days }} day(s)</strong> of first sessions: <strong>{{ partial_n|fmt(',') }} users</strong> against <strong>{{ first_full_n|fmt(',') }}</strong> in the first full cohort ({{ first_full_label }}). Its elevated Week-1 rate is small-sample variance from the window boundary, not a behavioural signal — so it is <strong>excluded from the averages above</strong> rather than explained.</p>
+{%- else -%}
+<p><strong>1 · Cohort alignment.</strong> The observation window opens on a Monday, so every cohort bucket represents a full week and no partial-week distortion is present.</p>
+{%- endif %}

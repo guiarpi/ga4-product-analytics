@@ -1,0 +1,630 @@
+{#- dashboard.html.j2 — the page generate_dashboard.py renders.
+    Autoescaped: every {{ value }} is HTML-escaped unless marked |safe (charts,
+    plotly.js, the rendered brief). |fmt(spec) formats a number like Python's
+    format(value, spec); |pval formats a p-value. Narrative fragments with
+    their own logic live in partials/. -#}
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>GA4 Funnel Analysis — Product Dashboard</title>
+<!-- plotly.js is embedded (not loaded from a CDN) so the file works offline and
+     the JS version always matches the Python plotly package that built the figures. -->
+<script type="text/javascript">{{ plotly_js|safe }}</script>
+<style>
+{% include "dashboard.css" %}
+</style>
+</head>
+<body>
+
+<div class="page-header">
+  <h1>GA4 E-Commerce — Product Funnel Analysis</h1>
+  <div class="subtitle">
+    <span>Session-scoped · Sequential conversion</span>
+    <span>{{ date_label }}</span>
+    <span>GA4 public e-commerce sample · BigQuery</span>
+    <span>Generated {{ generated_date }}</span>
+  </div>
+</div>
+
+<div class="container">
+
+  <!-- ── About This Dataset ────────────────────────────────────────────── -->
+  <p class="section-label">About This Dataset</p>
+  <div class="card">
+    <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:24px;font-size:0.87rem;color:#374151;line-height:1.7">
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Business</strong>
+        <strong>Google Merchandise Store</strong> (<a href="https://shop.googlemerchandisestore.com" target="_blank" style="color:#2563eb">store.google.com</a>)<br>
+        B2C e-commerce selling Google-branded merchandise: apparel, accessories, and electronics.
+      </div>
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Dataset</strong>
+        {% if IS_PUBLIC_SAMPLE %}Google's public obfuscated GA4 export on BigQuery<br>{% else %}GA4 BigQuery export<br>{% endif %}
+        (<code>{{ DATASET }}</code>)<br>
+        {{ date_label }} · {{ total_sessions|fmt(',') }} sessions · {{ unique_users|fmt(',') }} unique users
+      </div>
+      <div>
+        <strong style="display:block;font-size:0.72rem;text-transform:uppercase;letter-spacing:0.8px;color:#6b7280;margin-bottom:8px">Events analysed</strong>
+        <code>session_start</code> · <code>view_item</code> · <code>add_to_cart</code><br>
+        <code>begin_checkout</code> · <code>purchase</code><br>
+        Raw GA4 event stream — nested <code>event_params</code>, session IDs extracted via <code>UNNEST</code>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Executive Summary ───────────────────────────────────────────────── -->
+  <p class="section-label">Executive Summary</p>
+  <div class="exec-card">
+    <div class="priority-tag">Primary bottleneck: {{ priority_label }}</div>
+    <p>{% include "partials/exec_summary.html.j2" %}</p>
+  </div>
+
+{% include "partials/data_quality.html.j2" %}
+
+  <!-- ── KPIs ───────────────────────────────────────────────────────────── -->
+  <p class="section-label">Key Metrics · {{ date_label }}</p>
+  <div class="kpi-grid">
+    <div class="kpi">
+      <div class="kpi-label">Total Sessions</div>
+      <div class="kpi-value">{{ total_sessions|fmt(',') }}</div>
+      <div class="kpi-sub">unique user × session pairs</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Unique Users</div>
+      <div class="kpi-value">{{ unique_users|fmt(',') }}</div>
+      <div class="kpi-sub">distinct user_pseudo_ids · {{ (total_sessions / unique_users)|fmt('.1f') }} sessions/user avg</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Session → Purchase</div>
+      <div class="kpi-value">{{ overall_cvr|fmt('.2f') }}%</div>
+      <div class="kpi-sub">end-to-end conversion rate</div>
+    </div>
+    <div class="kpi">
+      <div class="kpi-label">Avg Order Value</div>
+      <div class="kpi-value">${{ aov|fmt(',.2f') }}</div>
+      <div class="kpi-sub">${{ total_revenue|fmt(',.0f') }} ÷ {{ orders_with_rev|fmt(',') }} orders with revenue
+      ({{ orders_no_rev|fmt(',') }} of {{ purchase_n|fmt(',') }} purchases record none) · median ${{ median_order|fmt(',.0f') }}</div>
+    </div>
+    <div class="kpi {{ ('warn' if wk1_warn else '') }}">
+      <div class="kpi-label">Week-1 Return {{ retention_flag }}</div>
+      <div class="kpi-value">{{ wk1_display }}</div>
+      <div class="kpi-sub">return in the next calendar week ·
+      {{ (('below the ' ~ WK1_TARGET|fmt('.0f') ~ '% planning target (an assumption)') if wk1_warn else ('planning target ' ~ WK1_TARGET|fmt('.0f') ~ '% (an assumption)')) }}</div>
+    </div>
+  </div>
+
+  <!-- ── Key Findings ───────────────────────────────────────────────────── -->
+  <p class="section-label">Key Findings</p>
+  <div class="findings-grid">
+
+    <div class="finding">
+      <div class="finding-num">Finding 01 · Biggest drop</div>
+      <div class="finding-stat red">{{ view_rate|fmt('.0f') }}%</div>
+      <div class="finding-title">of sessions ever see a product</div>
+      <div class="finding-body">
+        <strong>{{ (100 - view_rate)|fmt('.0f') }}%</strong> of sessions —
+        <strong>{{ total_lost_discovery|fmt(',') }} visits</strong> — end without seeing a
+        single product. This is the largest absolute loss in the funnel.
+        {{ ua_lost_share|fmt('.0f') }}% of it sits in very short sessions with no channel tag (see Data
+        quality). In a SaaS context, this maps to users who log in but never
+        navigate to a core feature.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 02 · Seeing products rarely leads to a cart</div>
+      <div class="finding-stat amber">{{ atc_from_view|fmt('.0f') }}%</div>
+      <div class="finding-title">of sessions that saw products added one to cart</div>
+      <div class="finding-body">
+        {{ (100 - atc_from_view)|fmt('.0f') }}% of sessions that saw products
+        ({{ (view_item_n - carted_n)|fmt(',') }}) added nothing to cart. This is a separate problem from
+        discovery, and it depends on the category. Per-category rates run from
+        {{ cat_rate_min|fmt('.0f') }}% to {{ cat_rate_max|fmt('.0f') }}%
+        (Product Category, below).
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 03 · Most carts are abandoned</div>
+      <div class="finding-stat red">{{ cart_abandon_pct|fmt('.0f') }}%</div>
+      <div class="finding-title">of carting sessions never begin checkout</div>
+      <div class="finding-body">
+        Only <strong>{{ cart_to_checkout|fmt('.0f') }}%</strong> of sessions with a cart
+        ({{ checkout_n|fmt(',') }} of {{ carted_n|fmt(',') }}) start checkout, and
+        <strong>{{ checkout_to_purch|fmt('.0f') }}%</strong> of those finish the purchase.
+        {{ ('This is the largest loss once a shopper has shown purchase intent. ' if (cart_abandon_pct > (100 - checkout_to_purch)) else '') }}How fast
+        <em>converters</em> buy (median {{ total_ttc_min|fmt('.0f') }} min) says nothing about the
+        sessions that abandon.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 04 · Few visitors come back</div>
+      <div class="finding-stat {{ ('amber' if wk1_warn else 'blue') }}">{{ wk1_display }}</div>
+      <div class="finding-title">Week-1 return rate</div>
+      <div class="finding-body">
+        On average <strong>{{ wk1_display }}</strong> of a weekly cohort has a session in
+        the next calendar week, against an {{ WK1_TARGET|fmt('.0f') }}% planning target (an
+        assumption, not an industry benchmark). This dataset cannot say whether
+        campaigns brought low-intent traffic or there was no post-visit
+        re-engagement.
+      </div>
+    </div>
+
+
+    <div class="finding">
+      <div class="finding-num">Finding 05 · Revenue</div>
+      <div class="finding-stat green">${{ total_revenue|fmt(',.0f') }}</div>
+      <div class="finding-title">from {{ purchase_n|fmt(',') }} funnel purchases</div>
+      <div class="finding-body">
+        ${{ rev_per_purchase|fmt(',.2f') }} per purchase. {{ orders_no_rev|fmt(',') }} purchases record no
+        revenue, so AOV over the {{ orders_with_rev|fmt(',') }} that do is
+        <strong>${{ aov|fmt(',.2f') }}</strong> (median ${{ median_order|fmt(',.0f') }}). Revenue per session
+        by channel is broken out in the Acquisition Channel section below.
+      </div>
+    </div>
+
+    <div class="finding">
+      <div class="finding-num">Finding 06 · Device is not the lever</div>
+      <div class="finding-stat blue">{{ device_gap|fmt('.2f') }}pp</div>
+      <div class="finding-title">spread in purchase rate across all devices</div>
+      <div class="finding-body">
+        Purchase conversion differs by only <strong>{{ device_gap|fmt('.2f') }} percentage
+        points</strong> between desktop, mobile and tablet
+        ({{ ('significant but negligible' if device_significant else 'not statistically significant') }},
+        χ² {{ device_test.p|pval }}). A mobile-first
+        redesign — the intuitive response to a {{ overall_cvr|fmt('.2f') }}% conversion rate — would not
+        have moved the number. Effort belongs in discovery, carts and lifecycle,
+        not device-specific work.
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ── Funnel + insight ────────────────────────────────────────────────── -->
+  <p class="section-label">Conversion Funnel — Session-Scoped · Sequential</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div>{{ charts.funnel|safe }}</div>
+      <div>
+        <div class="insight-panel">
+          <h4>What this shows</h4>
+          <p><strong>Sequential</strong>: a session counts at a step only if it
+          completed every earlier step <em>in order, within the same session</em>, as
+          a closed funnel does in the GA4 UI.</p>
+          <p>The <strong>largest absolute loss</strong> is between
+          <strong>{{ biggest_drop_step }}</strong> and
+          <strong>{{ funnel_df.loc[(biggest_drop_idx + 1), 'step'] }}</strong>:
+          {{ biggest_drop_n|fmt(',') }} sessions ({{ funnel_df.loc[(biggest_drop_idx + 1), 'drop_off']|fmt('.1f') }}%).</p>
+          <p>After that, step pass rates are
+          <strong>{{ atc_from_view|fmt('.1f') }}%</strong> (saw products → cart),
+          <strong>{{ cart_to_checkout|fmt('.1f') }}%</strong> (cart → checkout) and
+          <strong>{{ checkout_to_purch|fmt('.1f') }}%</strong> (checkout → purchase). Fewer
+          sessions are lost at these steps, but the drop-off rates are just as steep:
+          {{ cart_abandon_pct|fmt('.0f') }}% of carts never reach checkout.</p>
+        </div>
+        <div class="opportunity">
+          <h4>Revenue opportunity</h4>
+          <p>If the share of sessions that see a product rises by <strong>5 percentage points</strong> ({{ view_rate|fmt('.1f') }}% → {{ (view_rate + 5)|fmt('.1f') }}%):</p>
+          <span class="big-number">~{{ lift_5pp_purchases|fmt(',') }} extra orders</span>
+          <p>~<strong>${{ lift_5pp_revenue|fmt(',.0f') }}</strong> additional revenue
+          at ${{ rev_per_purchase|fmt(',.2f') }} per funnel purchase.</p>
+          <p style="font-size:0.78rem;opacity:0.85;margin-top:8px">
+          <strong>Sensitivity.</strong> This assumes incremental sessions convert at
+          the same {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw-products → purchase rate as today's
+          traffic — an optimistic upper bound, since marginal traffic typically
+          converts below average. At 75% of that rate:
+          <strong>${{ lift_5pp_rev_75|fmt(',.0f') }}</strong>. At 50%:
+          <strong>${{ lift_5pp_rev_50|fmt(',.0f') }}</strong>. Treat
+          <strong>${{ lift_5pp_rev_50|fmt(',.0f') }}–${{ lift_5pp_revenue|fmt(',.0f') }}</strong> as the
+          planning range.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Time-to-convert ────────────────────────────────────────────────── -->
+  <p class="section-label">Time-to-Convert</p>
+  <div class="card">
+    <div class="two-col">
+      <div>{{ charts.ttc|safe }}</div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>Sessions that convert take a median <strong>{{ total_ttc_min|fmt('.0f') }} minutes</strong>
+        from session start to purchase, with checkout → purchase taking
+        {{ ttc_minutes[3]|fmt('.1f') }} min. That describes buyers only. It doesn't show why
+        {{ cart_abandon_pct|fmt('.0f') }}% of carts never reach checkout.</p>
+        <p><strong>† Partly a tracking signal, not shopper behaviour.</strong> The median
+        saw-products → cart gap is only {{ ttc_minutes[1]|fmt('.1f') }} min, and
+        <strong>{{ cart_same_ts_pct|fmt('.0f') }}%</strong> of carting sessions
+        ({{ cart_same_ts|fmt(',') }} of {{ carting_all|fmt(',') }}; {{ conv_same_ts_pct|fmt('.0f') }}% of converting ones)
+        log their first add-to-cart at the <em>exact</em> microsecond of their first
+        product impression. {{ ((cart_within_1s|fmt(',')) if cart_within_1s else 'None') }} fall
+        strictly between zero and one second, and
+        {{ cart_no_view|fmt(',') }} carts come before, or without, any product impression. Together
+        with the list-sized item arrays (Data quality, point 2), this points to
+        quick-add buttons on listing pages firing both events at once.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Device breakdown (table — a negative result) ───────────────────── -->
+  <p class="section-label">Device Breakdown — A Negative Result</p>
+  <div class="card">
+    <div class="two-col">
+      <div>
+        <table class="dev-table">
+          <thead>
+            <tr>
+              <th>Device</th><th>Sessions</th><th>Share</th>
+              <th>Saw Product</th><th>Add to Cart</th><th>Purchase</th><th>95% CI</th>
+            </tr>
+          </thead>
+          <tbody>
+{% include "partials/device_rows.html.j2" %}
+          </tbody>
+        </table>
+      </div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        <p>Session-to-purchase rates sit within
+        <strong>{{ device_gap|fmt('.2f') }} percentage points</strong> across desktop,
+        mobile and tablet{{ ('' if device_significant else ', and their 95% intervals overlap') }}.
+        A chi-square test of purchase × device gives
+        <strong>{{ device_test.p|pval }}</strong> (χ² = {{ device_test['chi2']|fmt('.1f') }},
+        {{ device_test['dof'] }} df): {{ (("statistically significant, but the effect is negligible (Cramér's V = " ~ device_test['cramers_v']|fmt('.3f') ~ ')') if device_significant else 'no evidence that device changes the purchase rate') }}.</p>
+        <p><strong>This is reported precisely because it is a null result.</strong>
+        The intuitive next step after seeing a {{ overall_cvr|fmt('.2f') }}% conversion rate is a
+        mobile-first redesign. The data says that work would not have moved the
+        number — the leak is upstream of device, in discovery.</p>
+        <p class="caveat-note">Shown as a table, not a chart: three series
+        differing by {{ device_gap|fmt('.2f') }}pp render as three identical bars and invite
+        the reader to hunt for a difference that isn't there.</p>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── Acquisition channel (E1) ───────────────────────────────────────── -->
+  <p class="section-label">Acquisition Channel — Is Discovery a Traffic Problem?</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div>{{ charts.channel|safe }}</div>
+      <div class="insight-panel">
+        <h4>Conclusion</h4>
+        {% include "partials/channel_verdict.html.j2" %}
+        <p class="caveat-note">{% include "partials/channel_basis_note.html.j2" %} The public sample obfuscates
+        some values (<code>&lt;Other&gt;</code>, <code>(data deleted)</code>);
+        they are kept as reported rather than guessed.</p>
+      </div>
+    </div>
+    <table class="dev-table" style="margin-top:20px">
+      <thead>
+        <tr>
+          <th>Channel</th><th>Sessions</th><th>Share</th><th>Saw Product</th>
+          <th>Saw → Cart</th><th>Purchase</th><th>Rev / Session</th>
+        </tr>
+      </thead>
+      <tbody>
+{% include "partials/channel_rows.html.j2" %}
+      </tbody>
+    </table>
+    <p style="font-size:0.75rem;color:#9ca3af;margin-top:10px">
+      * fewer than 30 purchases — the <em>purchase</em> and revenue columns are too
+      noisy to compare. View-item rates rest on session counts and are unaffected.
+      Channels under 1% of sessions are grouped.</p>
+  </div>
+
+  <!-- ── Product category (E2) ──────────────────────────────────────────── -->
+  <p class="section-label">Product Category — Where Interest Fails to Become Intent</p>
+  <div class="card">
+    <div class="chart-insight">
+      <div>{{ charts.category|safe }}</div>
+      <div class="insight-panel">
+        <h4>Where to start the merchandising audit</h4>
+        {% include "partials/category_verdict.html.j2" %}
+        <p class="caveat-note">A session "saw" a category when a product from it appeared
+        in a viewed product list. It counts as carted only if the item actually carted
+        (the one with a quantity, not the rest of the list) is from that category and
+        was carted after the first sighting. So rates are stricter than the
+        {{ shoppers_atc|fmt('.0f') }}% shoppers figure, and rows are not additive.
+        Categories with fewer than {{ MIN_CATEGORY_VIEWS|fmt(',') }} viewing sessions
+        ({{ category_excluded_n }} excluded) and <code>(not set)</code>
+        ({{ category_notset_share|fmt('.1f') }}% of category views) are not ranked.
+        Labels are normalised to their last path segment
+        (<code>Lifestyle/Bags/</code> → <code>Bags</code>): {{ category_raw_labels }} raw
+        labels collapse into {{ (category_raw)|length }} categories, {{ category_merged_groups }} of
+        them merged from more than one label.</p>
+        {% include "partials/category_price_note.html.j2" %}
+      </div>
+    </div>
+    <table class="dev-table" style="margin-top:20px">
+      <thead>
+        <tr>
+          <th>Category</th><th>Sessions that saw it</th><th>Carting sessions</th>
+          <th>Seen → Carted</th><th>95% CI</th><th>vs site average</th><th>Carts at stake</th>
+        </tr>
+      </thead>
+      <tbody>
+{% include "partials/category_rows.html.j2" %}
+      </tbody>
+    </table>
+  </div>
+
+  <!-- ── Cohort retention ────────────────────────────────────────────────── -->
+  <p class="section-label">Weekly Cohort Retention</p>
+  <div class="card">
+    <div class="chart-insight flip">
+      <div class="insight-panel">
+        <h4>What this shows</h4>
+        <p>Each row is a group of users who had their <em>first ever session</em>
+        in that week. The cells show what % of them had a session in each
+        later calendar week.</p>
+        <p><strong>Week-1 return</strong> is {{ WK1_DEFINITION }}.</p>
+        <p>Avg Week-1 return: <strong>{{ wk1_display }}</strong><br>
+        Avg Week-2 return: <strong>{{ ((avg_wk2 ~ '%') if avg_wk2 else '—') }}</strong></p>
+        <h4 style="margin-top:16px">What this means</h4>
+        <p>Week-1 return of <strong>{{ wk1_display }}</strong> is
+        {{ (((WK1_TARGET - avg_wk1)|fmt('.1f') ~ 'pp below') if wk1_warn else 'at or above') }} the
+        {{ WK1_TARGET|fmt('.0f') }}% planning target (an assumption, not an external benchmark).
+        {{ (100 - avg_wk1)|fmt('.0f') }}% of a typical cohort shows no session the following week.</p>
+        <p><strong>Possible causes</strong> (this dataset cannot tell them
+        apart): no triggered email or push re-engagement, traffic from
+        low-intent channels, or a first session that didn't reach a product.</p>
+        <p><strong>In SaaS terms:</strong> the closest analogue is D7 retention,
+        but this is a calendar-week measure, so it is not directly comparable. The
+        usual intervention is lifecycle emails or in-app nudges on day 2–3.</p>
+        <h4 style="margin-top:16px">Data quality — two boundary effects</h4>
+        {% include "partials/partial_cohort_note.html.j2" %}
+        <p><strong>2 · Recent cohorts are right-censored.</strong> A user who
+        joined in the final week has not had the opportunity to return. Those
+        cells are left <strong>blank rather than 0%</strong>, because filling them
+        with zero would report "hasn't happened yet" as "did not retain" and
+        drag the trend line down artificially.</p>
+        <p class="caveat-note">Both are the kind of artefact that produces a
+        confident, entirely false narrative if left unhandled — the drop-off
+        across later cohorts would look far steeper than it is.</p>
+      </div>
+      <div>{{ charts.cohort|safe }}</div>
+    </div>
+  </div>
+
+{% include "partials/new_vs_returning.html.j2" %}
+  <!-- ── Recommendations ────────────────────────────────────────────────── -->
+  <p class="section-label">Recommendations — Prioritised by Impact</p>
+  <div class="rec-grid">
+
+    <div class="rec">
+      <span class="rec-priority p1">Priority 1 · Immediate</span>
+      <h4>Fix product discovery</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>{{ (100 - view_rate)|fmt('.0f') }}% of sessions never see a product</strong> —
+        <strong>{{ total_lost_discovery|fmt(',') }} visits</strong> lost before shopping begins.
+        This is the largest absolute loss in the funnel. In a SaaS context, it maps to
+        users who log in but never navigate to a core feature.</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Audit the homepage and category navigation — are products surfaced above the fold?
+        Test a personalised "Recommended for you" module on the landing page.
+        Instrument clicks on navigation elements to identify which paths lead to product views
+        and which lead to exits.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>A <strong>5pp improvement</strong> in the share of sessions that see a product
+        would drive approximately <strong>~{{ lift_5pp_purchases|fmt(',') }} additional orders</strong>
+        and ~<strong>${{ lift_5pp_revenue|fmt(',.0f') }}</strong> (upper bound; see sensitivity above).</p>
+        <div class="metric">share of sessions that see a product (target: {{ (view_rate + 5)|fmt('.1f') }}% — the +5pp planning scenario, an assumption)</div>
+      </div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p2">Priority 2 · Short-term</span>
+      <h4>Recover carts and build re-engagement</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p><strong>{{ cart_abandon_pct|fmt('.0f') }}% of carting sessions</strong>
+        ({{ (carted_n - checkout_n)|fmt(',') }} of {{ carted_n|fmt(',') }}) never begin checkout, and Week-1 return
+        is <strong>{{ wk1_display }}</strong> ({{ (100 - avg_wk1)|fmt('.0f') }}% of a cohort has no session the
+        next calendar week). This dataset cannot show whether any re-engagement
+        (email, push, remarketing) was running; if none was, it is the first thing to test.</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Launch a triggered email or push sequence for identifiable users:
+        <strong>within 24h</strong> a cart reminder for sessions that carted but did not
+        check out, <strong>day 3</strong> a reminder of products they browsed, and
+        <strong>day 7</strong> a win-back offer. Test it against a holdout group and measure cart →
+        checkout and Week-1 / Week-2 return per cohort.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>Lifting Week-1 return from today's <strong>{{ wk1_display }}</strong> average to
+        <strong>{{ WK1_TARGET|fmt('.0f') }}%</strong> would have brought back
+        ~<strong>{{ wk1_extra_users|fmt(',') }}</strong> more users in their second week, across the
+        {{ wk1_n_cohorts }} full cohorts ({{ wk1_base_users|fmt(',') }} first-time users) observed in this
+        window — repeat sessions that need no extra acquisition spend.
+        {% if has_visitor_split %}Counting one session each, valued between a new session (${{ vs_new.rev_per_session|fmt(',.2f') }}) and a returning one (${{ vs_ret.rev_per_session|fmt(',.2f') }}), that is <strong>${{ rec2_rev_low|fmt(',.0f') }}–${{ rec2_rev_high|fmt(',.0f') }}</strong> over the window, before any cart-recovery effect.{% endif %}</p>
+        <div class="metric">cart → checkout rate · Week-1 return (target: {{ WK1_TARGET|fmt('.0f') }}%, a planning assumption)</div>
+      </div>
+    </div>
+
+    <div class="rec">
+      <span class="rec-priority p3">Priority 3 · Investigate</span>
+      <h4>Act on the channel and category splits</h4>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Problem</div>
+        <p>{% include "partials/channel_rec_problem.html.j2" %}</p>
+      </div>
+
+      <div class="rec-section">
+        <div class="rec-section-label">Recommended Actions</div>
+        <p>Start the merchandising audit with
+        {{ category_top_targets|join(', ') if category_top_targets else 'the lowest view → cart categories' }}
+        (see Product Category above): review how their products are presented in
+        listings, including images, price and stock. On the channel side, weight acquisition spend
+        towards revenue per session, not session volume.</p>
+      </div>
+
+      <div class="rec-section rec-impact">
+        <div class="rec-section-label">Business Impact</div>
+        <p>{% include "partials/rec3_impact.html.j2" %}</p>
+        <div class="metric">revenue per session by channel · seen → carted in target categories</div>
+      </div>
+    </div>
+
+  </div>
+
+
+  <!-- ── How the AI brief is produced ───────────────────────────────────── -->
+  <!-- Describes what the code actually does: the brief is written in notebook
+       Section 10 and reviewed; this script only embeds it. -->
+  <p class="section-label">AI-Augmented Reporting — How the Brief Is Produced</p>
+  <div class="card">
+    <p style="font-size:0.87rem;color:#4b5563;margin-bottom:20px;line-height:1.7">
+      This page is built in two separate steps. A <strong>parameterised Python
+      script</strong> (<code>generate_dashboard.py</code>) recomputes every query, chart
+      and number shown here. The written <strong>product brief</strong> is produced
+      in Section 10 of the analysis notebook by a large language model, reviewed by
+      the analyst, and then embedded in this page.
+    </p>
+    <div class="two-col" style="gap:24px">
+      <div>
+        <div class="insight-panel">
+          <h4>Where the LLM fits in</h4>
+          <p>Notebook Section 10 packages the computed results — funnel rates,
+          revenue, device, channel and category splits, cohort retention — as
+          structured JSON and sends them to an LLM: Claude (Anthropic API) when an
+          Anthropic key is set, otherwise Gemini as a free alternative. The model
+          used is named on the brief.</p>
+          <p>The LLM never sees raw events or SQL. It receives curated, computed
+          metrics and writes the executive summary, findings, hypotheses and
+          recommended actions. Keeping it downstream of verified numbers means it
+          interprets results rather than calculating them.</p>
+          <p>Unlike a rule-based template ("if CVR &lt; 1% then show warning"), the
+          model frames the findings in business language. Its output is reviewed
+          before publishing, and this page marks a brief as out of date if it was
+          generated before the latest analyses were added.</p>
+        </div>
+      </div>
+      <div>
+        <div class="insight-panel">
+          <h4>End-to-end architecture</h4>
+          <p style="font-family:monospace;font-size:0.81rem;background:#f3f4f6;padding:14px 16px;border-radius:8px;line-height:2.1;color:#1f2937">
+            GA4 BigQuery Export<br>
+            &nbsp;&nbsp;&nbsp;↓ SQL · partition-pruned queries<br>
+            Computed metrics (pandas)<br>
+            &nbsp;&nbsp;&nbsp;├→ notebook §10 → <strong>LLM (Claude / Gemini)</strong><br>
+            &nbsp;&nbsp;&nbsp;│&nbsp;&nbsp;&nbsp;&nbsp;→ product brief → analyst review<br>
+            &nbsp;&nbsp;&nbsp;└→ generate_dashboard.py → Plotly charts<br>
+            &nbsp;&nbsp;&nbsp;↓ charts + reviewed brief → HTML<br>
+            dashboard.html → Stakeholders
+          </p>
+          <p style="margin-top:14px;font-size:0.83rem;color:#374151">
+            Set <code>GA4_DATASET</code>, <code>GA4_DATE_START</code> and
+            <code>GA4_DATE_END</code> (read by <code>config.py</code>) and run
+            <code style="background:#f3f4f6;padding:2px 6px;border-radius:4px">python generate_dashboard.py</code>
+            to recompute every query, chart and number on this page. Re-run notebook
+            Section 10 to refresh the brief. The script step can be scheduled; the
+            brief step deliberately keeps a human reviewer in the loop.
+          </p>
+        </div>
+        <div class="opportunity" style="margin-top:12px">
+          <h4>Next enhancement</h4>
+          <p>Pass the current period metrics <em>and</em> the prior period metrics to the LLM
+          context so the AI brief can reason about trends and changes — not just the
+          current snapshot. This moves the pipeline from a static summary tool to a
+          genuine period-over-period analytical narrative, automated end to end.</p>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- ── B2B SaaS translation ────────────────────────────────────────────── -->
+  <p class="section-label">Methodology Transfer — How This Applies to B2B SaaS</p>
+  <div class="card">
+    <p style="font-size:0.87rem;color:#4b5563;margin-bottom:20px;line-height:1.7">
+      This analysis uses GA4 e-commerce events as the data source, but the SQL patterns,
+      funnel logic, and retention methodology are directly transferable to any
+      event-based product analytics dataset — including B2B SaaS products.
+    </p>
+    <table class="saas-table">
+      <thead>
+        <tr>
+          <th>E-Commerce Event</th>
+          <th>B2B SaaS Equivalent</th>
+          <th>Metric</th>
+          <th>This Analysis</th>
+        </tr>
+      </thead>
+      <tbody>
+        <tr>
+          <td>session_start</td>
+          <td>User login / app open</td>
+          <td>DAU / session volume</td>
+          <td class="rate">{{ total_sessions|fmt(',') }} sessions</td>
+        </tr>
+        <tr>
+          <td>view_item</td>
+          <td>Feature discovery — navigating to a core feature</td>
+          <td>Feature reach rate</td>
+          <td class="rate">{{ view_rate|fmt('.1f') }}% of sessions</td>
+        </tr>
+        <tr>
+          <td>add_to_cart</td>
+          <td>Feature first use — attempting the core action</td>
+          <td>Activation attempt rate</td>
+          <td class="rate">{{ shoppers_atc|fmt('.1f') }}% of sessions that saw products</td>
+        </tr>
+        <tr>
+          <td>begin_checkout</td>
+          <td>Core workflow initiated — e.g. creating first record</td>
+          <td>Workflow start rate</td>
+          <td class="rate">{{ funnel_df.loc[3, 'step_cvr']|fmt('.1f') }}% step-over-step</td>
+        </tr>
+        <tr>
+          <td>purchase</td>
+          <td>Activation — completing the key value moment</td>
+          <td>Activation rate</td>
+          <td class="rate">{{ overall_cvr|fmt('.2f') }}% of all sessions</td>
+        </tr>
+        <tr>
+          <td>Week-1 return</td>
+          <td>Closest to D7 retention — but this is calendar-week return (1–13 days), not exactly 7 days</td>
+          <td>Early retention</td>
+          <td class="rate">{{ wk1_display }} avg across cohorts</td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+{% include "partials/appendix_brief.html.j2" %}
+
+  <!-- Footer -->
+  <div class="footer">
+    <strong>Methodology</strong><br>
+    Session-scoped funnel: each row is a unique (user_pseudo_id, ga_session_id) pair extracted
+    from event_params. Sequential constraint: a session is counted at step N only if it reached
+    step N−1 first within the same session. This matches a closed funnel in the GA4 UI and avoids
+    inflating conversion by attributing past-purchase behaviour to new sessions. The cost is
+    that purchases whose cart was filled in an earlier session are not counted (see Data quality).<br><br>
+    <strong>Data note</strong><br>
+    {% if IS_PUBLIC_SAMPLE %}Source: Google's public obfuscated GA4 e-commerce sample dataset. Absolute numbers are illustrative. Conversion rates, funnel patterns, and retention methodology are valid.{% else %}Source: <code>{{ DATASET }}</code>, {{ DATE_START }}–{{ DATE_END }}.{% endif %}
+    The same SQL applies directly to any GA4 BigQuery export.<br><br>
+    Python {{ python_version }} · Plotly {{ plotly_version }}
+  </div>
+
+</div>
+
+</body>
+</html>
