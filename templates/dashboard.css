@@ -10,8 +10,10 @@
   .page-header h1 { font-size: 1.6rem; font-weight: 700; letter-spacing: -0.4px; }
   .page-header .subtitle { margin-top: 6px; font-size: 0.85rem; opacity: 0.65;
                              display: flex; gap: 20px; flex-wrap: wrap; }
-  .page-header .subtitle span::before { content: "· "; }
-  .page-header .subtitle span:first-child::before { content: ""; }
+  /* Separators are borders on the following item, so a wrapped line never starts with a stray dot. */
+  .page-header .subtitle { gap: 6px 0; }
+  .page-header .subtitle span { padding: 0 14px; border-left: 1px solid rgba(255,255,255,.35); white-space: nowrap; }
+  .page-header .subtitle span:first-child { padding-left: 0; border-left: none; }
 
   /* Layout */
   .container { max-width: 1180px; margin: 0 auto; padding: 36px 24px 60px; }
@@ -73,8 +75,8 @@
                    border-bottom: 1px solid #f3f4f6; font-variant-numeric: tabular-nums; }
   .dev-table tr:last-child td { border-bottom: none; }
   .dev-table .dev-name { text-align: left; font-weight: 600; color: #111827;
-                          text-transform: capitalize; }
-  .dev-table .dev-key { font-weight: 700; color: #1d4ed8; }
+                          }
+  .dev-table .dev-key { font-weight: 700; color: #111827; }
   .dev-table .ci { color: #6b7280; font-size: 0.78rem; white-space: nowrap; }
   .flag-below { color: #c2410c; font-weight: 700; }
   .flag-above { color: #1d4ed8; font-weight: 700; }
@@ -97,9 +99,8 @@
   .rec-priority { font-size: 0.68rem; font-weight: 700; text-transform: uppercase;
                    letter-spacing: 0.8px; padding: 3px 10px; border-radius: 12px;
                    display: inline-block; margin-bottom: 14px; }
-  .rec-priority.p1 { background: #fef2f2; color: #dc2626; }
-  .rec-priority.p2 { background: #fff7ed; color: #ea580c; }
-  .rec-priority.p3 { background: #f0fdf4; color: #16a34a; }
+  /* Priority is an order, not good or bad: one neutral colour for all three. */
+  .rec-priority.p1, .rec-priority.p2, .rec-priority.p3 { background: #eef2ff; color: #3730a3; }
   .rec h4 { font-size: 0.95rem; font-weight: 700; color: #111827; margin-bottom: 8px; }
   .rec p  { font-size: 0.83rem; color: #4b5563; line-height: 1.65; margin-bottom: 8px; }
   .rec .metric { font-size: 0.78rem; font-weight: 600; color: #6b7280;
@@ -183,6 +184,22 @@
   .arch { font-family: ui-monospace, Menlo, monospace; font-size: 0.78rem !important;
           background: #f3f4f6; padding: 12px 14px; border-radius: 8px; line-height: 1.9 !important; }
   .dq-body p { font-size: 0.85rem; color: #374151; line-height: 1.65; margin-bottom: 10px; }
+
+  /* Chart titles state the conclusion */
+  .chart-title { font-size: 1rem; font-weight: 700; color: #111827; margin: 0 0 12px; line-height: 1.4; }
+  .chart-title .muted { font-weight: 400; color: #6b7280; font-size: 0.85rem; }
+
+  /* Phone width: 16px gutters, and wide tables scroll inside their card rather
+     than pushing the page sideways. */
+  @media (max-width: 640px) {
+    .container { padding: 24px 16px 48px; }
+    .page-header { padding: 28px 16px 22px; }
+    .card, .exec-card { padding: 20px 16px; }
+    .kpi { padding: 16px; }
+    .kpi-value { font-size: 1.7rem; }
+    .dev-table, .saas-table { display: block; overflow-x: auto; white-space: nowrap; }
+    .dev-table .path { white-space: normal; min-width: 150px; }
+  }
 
   /* Two-col utility */
   .two-col { display: grid; grid-template-columns: 1fr 1fr; gap: 20px; }

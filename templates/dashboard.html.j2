@@ -69,7 +69,10 @@
   <p class="section-label">Where does the funnel leak?</p>
   <div class="card">
     <div class="chart-insight">
-      <div>{{ charts.funnel|safe }}</div>
+      <div>
+        <h3 class="chart-title">{% if disc_is_biggest %}{{ (100 - view_rate)|fmt('.0f') }}% of sessions never see a product, and {{ cart_abandon_pct|fmt('.0f') }}% of carts are abandoned before checkout{% else %}The largest loss is {{ biggest_drop_step }} → next step ({{ biggest_drop_n|fmt(',') }} sessions){% endif %}</h3>
+        {{ charts.funnel|safe }}
+      </div>
       <div>
         <div class="insight-panel">
           <h4>Losses, largest first</h4>
@@ -111,7 +114,10 @@
   <p class="section-label">Is it the traffic? Acquisition channels</p>
   <div class="card">
     <div class="chart-insight">
-      <div>{{ charts.channel|safe }}</div>
+      <div>
+        <h3 class="chart-title">{% if channel_is_driver %}Product reach varies by {{ channel_view_spread|fmt('.1f') }}pp across channels{% else %}Every channel loses at least {{ (100 - best_view_pct)|fmt('.0f') }}% of sessions before a product <span class="muted">· {{ channel_view_spread|fmt('.1f') }}pp spread, under the 10pp threshold</span>{% endif %}</h3>
+        {{ charts.channel|safe }}
+      </div>
       <div class="insight-panel">
         <h4>Conclusion</h4>
         {% include "partials/channel_verdict.html.j2" %}
@@ -166,7 +172,10 @@
     Product-type pages are ranked against each other; brand, collection and parent pages mix product
     types, so they are shown separately.</p>
     <div class="chart-insight">
-      <div>{{ charts.category|safe }}</div>
+      <div>
+        <h3 class="chart-title">{% if category_n_below %}{{ category_n_below }} of {{ n_categories }} product-type pages cart below the {{ category_benchmark|fmt('.1f') }}% average <span class="muted">· most carts at stake at the top</span>{% else %}No product-type page carts clearly below the {{ category_benchmark|fmt('.1f') }}% average{% endif %}</h3>
+        {{ charts.category|safe }}
+      </div>
       <div class="insight-panel">
         <h4>Where to start the merchandising audit</h4>
         {% include "partials/category_verdict.html.j2" %}
@@ -199,6 +208,7 @@
       </div>
       <div>
         <h4 class="sub-h">By the product's price · a real product attribute</h4>
+        <h3 class="chart-title">Items at {{ price_best_band }} are carted most, {{ price_worst_band }} least</h3>
         {{ charts.price|safe }}
         <p class="table-note">Items at <strong>{{ price_best_band }}</strong> are carted most ({{ price_best_pct|fmt('.1f') }}%),
         items at <strong>{{ price_worst_band }}</strong> least ({{ price_worst_pct|fmt('.1f') }}%; χ² {{ price_band_test.p|pval }}).
@@ -234,7 +244,10 @@
         <p><strong>2 · Recent cohorts are right-censored.</strong> A user who joined in the final week has
         not had the chance to return, so those cells are <strong>blank, not 0%</strong>.</p>
       </div>
-      <div>{{ charts.cohort|safe }}</div>
+      <div>
+        <h3 class="chart-title">{% if has_retention_trend and trend_peak.month != trend_trough.month %}Week-1 return fell from {{ trend_peak.lo|fmt('.0f') }}–{{ trend_peak.hi|fmt('.0f') }}% in {{ trend_peak.month }} cohorts to {{ trend_trough.lo|fmt('.0f') }}–{{ trend_trough.hi|fmt('.0f') }}% in {{ trend_trough.month }}{% else %}{{ wk1_display }} of a weekly cohort returns the next week{% endif %} <span class="muted">· % of each cohort with a session in each later week</span></h3>
+        {{ charts.cohort|safe }}
+      </div>
     </div>
   </div>
 

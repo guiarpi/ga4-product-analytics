@@ -715,13 +715,13 @@ disc_is_biggest = bool(biggest_drop_idx == 0)
 # ── Priority label ─────────────────────────────────────────────────────────────
 if view_rate < 30:
     priority_label = "Top-of-Funnel: Product Discovery"
-    priority_color = "#dc2626"
+    priority_color = "#ea580c"
 elif atc_from_view < 40:
     priority_label = "Mid-Funnel: Product → Cart Conversion"
     priority_color = "#ea580c"
 else:
     priority_label = "Retention & Lifecycle"
-    priority_color = "#7c3aed"
+    priority_color = "#ea580c"
 
 
 # ══════════════════════════════════════════════════════════════════════════════
@@ -732,7 +732,7 @@ def chart_div(fig, div_id: str) -> str:
 
 chart_html = {
     "funnel":   chart_div(charts.funnel(funnel_df), "chart-funnel"),
-    "cohort":   chart_div(charts.cohort_heatmap(cohort_pct), "chart-cohort"),
+    "cohort":   chart_div(charts.cohort_heatmap(cohort_pct, cohort_pivot[0].tolist(), partial_label), "chart-cohort"),
     "channel":  chart_div(charts.channel(channel_tbl, view_rate), "chart-channel"),
     "category": chart_div(charts.category(category_tbl, category_benchmark), "chart-category"),
     "price":    chart_div(charts.price_bands(price_bands), "chart-price"),
