@@ -364,6 +364,33 @@ FROM {events_from(dataset, start, end)}
 """
 
 
+def session_start_check_sql(dataset: str, start: str, end: str) -> str:
+    """Why session_start events outnumber funnel sessions: events without IDs,
+    and sessions that log session_start more than once (how often, how far
+    apart). The funnel counts each (user_pseudo_id, ga_session_id) once."""
+    return f"""WITH ss AS (
+  SELECT user_pseudo_id, {param('ga_session_id')} AS session_id, event_timestamp
+  FROM {events_from(dataset, start, end)}
+    AND event_name = 'session_start'
+),
+per AS (
+  SELECT user_pseudo_id, session_id, COUNT(*) AS n,
+    COUNT(DISTINCT event_timestamp) AS n_ts,
+    (MAX(event_timestamp) - MIN(event_timestamp)) / 1e6 AS span_s
+  FROM ss WHERE session_id IS NOT NULL AND user_pseudo_id IS NOT NULL
+  GROUP BY 1, 2
+)
+SELECT
+  (SELECT COUNT(*) FROM ss) AS session_start_events,
+  (SELECT COUNTIF(session_id IS NULL OR user_pseudo_id IS NULL) FROM ss) AS events_without_ids,
+  (SELECT COUNT(*) FROM per) AS distinct_sessions,
+  (SELECT COUNTIF(n > 1) FROM per) AS sessions_with_repeat_start,
+  (SELECT IFNULL(SUM(n - 1), 0) FROM per) AS repeat_start_events,
+  (SELECT IFNULL(MAX(n), 0) FROM per) AS max_starts_in_one_session,
+  (SELECT COUNTIF(n > 1 AND n_ts < n) FROM per) AS repeats_with_identical_timestamp,
+  (SELECT MAX(IF(n > 1, span_s, NULL)) FROM per) AS max_seconds_between_repeats
+"""
+
 def event_quality_sql(dataset: str, start: str, end: str) -> str:
     """What view_item and add_to_cart actually record. A list-sized items array
     means a listing impression / quick-add, not a product-page view; on
