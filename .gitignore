@@ -11,6 +11,7 @@ google_creds.json
 
 # Python
 __pycache__/
+.pytest_cache/
 *.py[cod]
 .venv/
 venv/

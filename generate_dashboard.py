@@ -34,6 +34,8 @@ from plotly.offline import get_plotlyjs
 from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE,
                     make_client, describe)
 from stats_utils import wilson_ci, chi_square, format_p
+from metrics import site_average, flag_categories
+from md_render import md_to_html
 
 def fmt_p(p: float) -> str:
     """format_p, HTML-escaped (\"p < 0.001\" must not reach the page as a raw '<')."""
@@ -619,23 +621,13 @@ category_excluded_n = int(
 )
 category_tbl["atc_pct"] = category_tbl["carting_sessions"] / category_tbl["viewing_sessions"] * 100
 
-# Benchmark = pooled rate across ranked categories (volume-weighted), so one
-# tiny category with an extreme rate cannot move it.
-category_benchmark = (category_tbl["carting_sessions"].sum()
-                      / category_tbl["viewing_sessions"].sum() * 100) if len(category_tbl) else 0.0
-
-# Carts at stake: extra carting sessions if a below-benchmark category merely
-# converted at the benchmark. This is the prioritisation key — a mildly weak
-# category with huge traffic outranks a terrible one nobody visits.
-# E6 — a category is flagged as underperforming only when its whole Wilson 95%
-# interval lies below the site average; one whose interval overlaps it cannot be
-# told apart from average and is shown as neutral. (23-odd intervals at 95% each:
-# expect about one false flag by chance, so flags are a shortlist, not a verdict.)
-_cat_ci = [wilson_ci(k, n) for k, n in zip(category_tbl["carting_sessions"], category_tbl["viewing_sessions"])]
-category_tbl["ci_lo"] = [c[0] for c in _cat_ci]
-category_tbl["ci_hi"] = [c[1] for c in _cat_ci]
-category_tbl["status"] = ["below" if hi < category_benchmark else "above" if lo > category_benchmark else "neutral"
-                          for lo, hi in zip(category_tbl["ci_lo"], category_tbl["ci_hi"])]
+# Site average = pooled rate across ranked categories (metrics.site_average).
+# E6 — flags and carts at stake come from metrics.flag_categories: a category is
+# "below" only when its whole Wilson 95% interval lies under the site average,
+# and carts at stake count flagged categories only. (23-odd intervals at 95%
+# each: expect about one false flag by chance, so flags are a shortlist.)
+category_benchmark = site_average(category_tbl["carting_sessions"], category_tbl["viewing_sessions"])
+category_tbl = flag_categories(category_tbl, category_benchmark)
 category_n_below   = int((category_tbl["status"] == "below").sum())
 category_n_above   = int((category_tbl["status"] == "above").sum())
 category_n_neutral = int((category_tbl["status"] == "neutral").sum())
@@ -664,11 +656,6 @@ else:
         "categories, median listed price and seen → carted rate have a rank correlation of "
         f"{category_price_rho:+.2f} ({_html.escape(format_p(category_price_p))}). {_price_reading}</p>")
 
-# Carts at stake only for flagged categories: an unflagged gap may be noise.
-category_tbl["carts_at_stake"] = [
-    int(round((category_benchmark - r) / 100 * n)) if st == "below" else 0
-    for r, n, st in zip(category_tbl["atc_pct"], category_tbl["viewing_sessions"], category_tbl["status"])
-]
 category_tbl = category_tbl.sort_values("atc_pct").reset_index(drop=True)
 
 _cat_priority = category_tbl.sort_values("carts_at_stake", ascending=False)
@@ -1181,70 +1168,7 @@ BRIEF_CONTEXT_VERSION = 3
 brief_path = HERE / "product_brief_ga4_funnel.md"
 
 
-def _md_inline(text: str) -> str:
-    """Inline markdown → HTML. Input is LLM output, so it is escaped first."""
-    t = _html.escape(text, quote=False)
-    codes = []
-    def _keep_code(m):
-        codes.append(m.group(1))
-        return f"\x00{len(codes) - 1}\x00"
-    t = re.sub(r"`([^`]+)`", _keep_code, t)                 # protect code spans
-    t = re.sub(r"\[([^\]]+)\]\((https?://[^)\s]+)\)",
-               r'<a href="\2" target="_blank" rel="noopener">\1</a>', t)
-    t = re.sub(r"\*\*(.+?)\*\*", r"<strong>\1</strong>", t)
-    # Single-asterisk emphasis only when the asterisks hug the text, so a list
-    # marker or a stray "*" is never paired with the opening of "*So what*".
-    t = re.sub(r"(?<![\w*])\*(?=\S)(.+?)(?<=\S)\*(?![\w*])", r"<em>\1</em>", t)
-    t = re.sub("\x00(\\d+)\x00", lambda m: f"<code>{codes[int(m.group(1))]}</code>", t)
-    return t
-
-
-def md_to_html(text: str) -> str:
-    """Block markdown → HTML: headings, rules, paragraphs and nested lists."""
-    list_re = re.compile(r"^(\s*)([-*+]|\d+[.)])\s+(.*)$")
-    out, stack = [], []          # stack entries: [indent, tag, li_open]
-
-    def close_to(indent):
-        while stack and stack[-1][0] > indent:
-            level = stack.pop()
-            if level[2]:
-                out.append("</li>")
-            out.append(f"</{level[1]}>")
-
-    for raw in text.splitlines():
-        m = list_re.match(raw)
-        if m:
-            indent = len(m.group(1).expandtabs(4))
-            tag = "ol" if m.group(2)[0].isdigit() else "ul"
-            close_to(indent)
-            if stack and stack[-1][0] == indent:
-                if stack[-1][1] != tag:              # list type changed at this level
-                    close_to(indent - 1)
-                elif stack[-1][2]:
-                    out.append("</li>")
-                    stack[-1][2] = False
-            if not stack or stack[-1][0] < indent:
-                out.append(f"<{tag}>")
-                stack.append([indent, tag, False])
-            out.append(f"<li>{_md_inline(m.group(3))}")
-            stack[-1][2] = True
-            continue
-        if not raw.strip():
-            continue                                 # blank lines keep lists open
-        if stack and raw[:1].isspace():              # wrapped continuation of an item
-            out.append(" " + _md_inline(raw.strip()))
-            continue
-        close_to(-1)
-        line = raw.strip()
-        if line.startswith("### "):  out.append(f"<h4>{_md_inline(line[4:])}</h4>")
-        elif line.startswith("## "): out.append(f"<h3>{_md_inline(line[3:])}</h3>")
-        elif line.startswith("# "):  out.append(f"<h2>{_md_inline(line[2:])}</h2>")
-        elif re.fullmatch(r"-{3,}|\*{3,}", line): out.append("<hr>")
-        else:                        out.append(f"<p>{_md_inline(line)}</p>")
-    close_to(-1)
-    return "\n".join(out)
-
-
+# Markdown → HTML for the brief lives in md_render.py (unit-tested).
 if brief_path.exists():
     brief_md   = brief_path.read_text(encoding="utf-8")
     _gen  = re.search(r"\*Generated (\d{4}-\d{2}-\d{2})", brief_md)
