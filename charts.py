@@ -52,9 +52,13 @@ def funnel(steps: list, segments: list) -> go.Figure:
     fig.update_layout(
         height=430, margin=dict(l=10, r=10, t=44, b=10),
         paper_bgcolor="white", plot_bgcolor="white", showlegend=False, font=dict(size=12),
+        # One segment needs no menu (the notebook draws single funnels with this too).
         updatemenus=[dict(buttons=buttons, direction="down", x=0, xanchor="left", y=1.12, yanchor="top",
-                          bgcolor="white", bordercolor="#cbd5e1", font=dict(size=11), showactive=True)],
+                          bgcolor="white", bordercolor="#cbd5e1", font=dict(size=11), showactive=True)]
+                    if len(segments) > 1 else [],
     )
+    if len(segments) == 1:
+        fig.update_layout(margin=dict(t=10))
     return fig
 
 

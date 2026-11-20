@@ -4819,105 +4819,107 @@ channel brought them. This data cannot separate one-off gift buyers from holiday
     <div class="appendix-body">
       
       <div class="brief-body"><h3>Executive Summary</h3>
-<p>The largest loss in the conversion funnel occurs at product discovery: only 21.2% of sessions saw products (a drop-off of 279,596 sessions from 354,857 initial sessions). Capturing lost intent on underperforming landing pages, improving listing pages, and recovering abandoned carts represent the primary revenue opportunities. Note that this analysis is based on an obfuscated public sample and findings need validation on real data (in B2B SaaS, this funnel maps from login to feature discovery and core activation).</p>
+<p>The primary growth bottleneck is product discovery: only 21.2% of sessions saw any products (in B2B SaaS terms, moving from initial login to feature discovery), with drop-off leaning toward site-level friction rather than traffic acquisition quality. Secondarily, post-intent drop-off is severe, with 65.0% of carting sessions failing to begin checkout. Please note that this analysis is based on an obfuscated public sample and all findings require validation on production data.</p>
 <h3>Key Findings</h3>
 <ol>
-<li><strong>Product discovery represents the primary leak in the funnel</strong>
- Only 21.2% of sessions (75,261 of 354,857) saw products—representing an absolute drop-off of 279,596 sessions at step two (in B2B SaaS, moving from session start/login to feature discovery).
+<li><strong>Discovery drop-off represents the largest funnel loss</strong> Out of 354,857 total sessions, only 75,261 (21.2%) saw products, resulting in a 78.8% drop-off between session start and product viewing (login to feature discovery in B2B SaaS).
 <ul>
-<li><strong>So what:</strong> Product and growth teams should focus initial efforts on navigation and entry-page visibility to get users to product lists faster.
+<li><strong>So what:</strong> Product effort should focus on site navigation and home page discovery mechanics rather than channel reallocation, as the channel spread of 8.7pp leans toward a site-level leak.
 </li>
 </ul>
 </li>
-<li><strong>Four landing pages account for significant discovery drop-off</strong>
- Four top landing pages receive 76,426 aggregate landings but convert users to seeing products at rates far below the 21.2% site average (e.g., <code>/Google+Redesign/Apparel</code> receives 39,092 landings but has an 8.9% saw-product rate).
+<li><strong>Four specific landing pages underperform in product exposure</strong> 4 landing pages (accounting for 76,426 total landings) show product viewing rates between 8.9% and 11.8%, well below the site average of 21.2%.
 <ul>
-<li><strong>So what:</strong> Fixing page layout, inventory availability, or tracking gaps on these four entry routes could unlock up to 8,731 additional product-viewing sessions.
+<li><strong>So what:</strong> Focus technical and layout audits on these 4 pages to eliminate friction preventing users from seeing listed products.
 </li>
 </ul>
 </li>
-<li><strong>Cart abandonment is the largest intent-stage drop-off</strong>
- 65.0% of carting sessions (9,665 of 14,870) end without beginning checkout.
+<li><strong>Post-intent cart abandonment discards 65.0% of intent sessions</strong> Out of 14,870 sessions with an add-to-cart event, 9,665 sessions (65.0%) never begin checkout.
 <ul>
-<li><strong>So what:</strong> Automated cart recovery and re-engagement triggers targeting identifiable users are necessary to capture high-intent users before they churn.
+<li><strong>So what:</strong> Implement targeted cart recovery and immediate checkout prompts to recapture users who have already displayed buying intent.
 </li>
 </ul>
 </li>
-<li><strong>Category listing performance is concentrated in three main subcategories</strong>
- 6 of 12 ranked product-type listing pages sit below the 22.1% product-type average with 95% confidence. The top three underperforming listings—Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%)—account for 1,054 of the 1,635 total carts at stake across all flagged pages.
+<li><strong>Three key category listing pages drive the majority of listing drop-off</strong> 6 of 12 ranked product-type listing pages sit below the 22.1% product-type site average with 95% confidence; the top 3 by carts at stake—Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%)—account for 1,054 of the 1,635 total carts at stake across flagged pages.
 <ul>
-<li><strong>So what:</strong> Merchandising layout audits should focus strictly on Bags, Women's, and Men's / Unisex, as neutral categories cannot be distinguished from the average.
+<li><strong>So what:</strong> Review product listing presentation and item sorting on these three specific category listing pages to raise carting performance toward the site product-type average.
+</li>
+</ul>
+</li>
+<li><strong>Cohort retention fell due to within-channel seasonality</strong> Week-1 return rates dropped from 5.7% in November cohorts to 2.9% in December cohorts (against an 8.0% planning target assumption), with channel mix explaining only 7.2% of the change.
+<ul>
+<li><strong>So what:</strong> Re-engagement campaigns should target seasonal timing and user incentives across existing channels rather than shifting acquisition spend between channels.
 </li>
 </ul>
 </li>
 </ol>
 <h3>Hypotheses</h3>
 <ol>
-<li><strong>[MEDIUM] confidence — The discovery leak is primarily a site navigation problem rather than a channel traffic quality issue</strong>
+<li><strong>[MEDIUM confidence] — Underperforming landing pages suppress product exposure due to layout or technical listing issues</strong>
 <ul>
-<li><strong>Evidence:</strong> The spread in saw-product rates across session mediums is 8.7 percentage points, which sits below the 10.0 percentage point analyst-set threshold for attributing leaks to traffic quality.
+<li><strong>Evidence:</strong> 4 landing pages capturing 76,426 landings yield saw-a-product rates between 8.9% and 11.8%, compared to the site average of 21.2%.
 </li>
-<li><strong>Confounder:</strong> Very short, untagged sessions (<code>(not set)</code>) represent 26.2% of total sessions and 31.0% of the discovery loss, leaving their intent unknown.
+<li><strong>Confounder:</strong> Tracking gap — if the <code>view_item</code> list-impression event fails to fire on these pages, the low rate reflects a measurement issue rather than user behavior.
 </li>
 </ul>
 </li>
-<li><strong>[MEDIUM] confidence — Low product-view rates on top landing pages stem from technical layout, inventory, or tracking issues</strong>
+<li><strong>[MEDIUM confidence] — Listing page presentation on key categories drags down seen-to-carted conversion</strong>
 <ul>
-<li><strong>Evidence:</strong> Landings on pages like <code>/Google+Redesign/Apparel</code> (39,092 landings) convert to seeing products at 8.9%, compared to the site average of 21.2%.
+<li><strong>Evidence:</strong> Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%) convert significantly below the 22.1% site product-type average, leaving 1,054 carts at stake across these 3 pages.
 </li>
-<li><strong>Confounder:</strong> A tracking gap where <code>view_item</code> fails to fire would artificially depress the measured saw-product rate without reflecting actual user browsing behavior.
+<li><strong>Confounder:</strong> Price and listing composition — listed median prices (e.g., $37.0 for Men's / Unisex) or broad mixed-category listing exposure may naturally lower seen-to-carted rates regardless of page layout.
 </li>
 </ul>
 </li>
-<li><strong>[LOW] confidence — Listing design on Bags, Women's, and Men's / Unisex listing pages suppresses cart additions</strong>
+<li><strong>[MEDIUM confidence] — Re-engaging past visitors will produce higher session conversion rates than new visitor acquisition</strong>
 <ul>
-<li><strong>Evidence:</strong> Listing-to-cart conversion rates for Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%) are below the 22.1% product-type average with 95% confidence.
+<li><strong>Evidence:</strong> Returning sessions convert at 1.7% from session to purchase compared to 0.4% for new sessions (a 4.1x ratio).
 </li>
-<li><strong>Confounder:</strong> Listing composition (items appearing in broad, mixed lists) and higher median item prices ($37.0 for Men's / Unisex vs $12.0 for Bags) lower cart conversion, independent of list design.
+<li><strong>Confounder:</strong> Self-selection — users who choose to return unprompted are inherently higher-intent, meaning prompted re-engagement may not replicate returning session conversion rates.
 </li>
 </ul>
 </li>
 </ol>
 <h3>Recommended Actions</h3>
 <ol>
-<li><strong>Fix top landing pages that fail to display products</strong>
+<li><strong>Fix top underperforming landing pages</strong>
 <ul>
-<li><strong>What:</strong> Audit and repair page layouts, inventory status, and tag implementations across <code>/Google+Redesign/Apparel</code>, <code>/Google+Redesign/Apparel/Google+Dino+Game+Tee</code>, <code>/store.html</code>, and <code>/Google+Redesign/Lifestyle/Drinkware</code>.
+<li><strong>What:</strong> Resolve technical, inventory, or presentation issues on the 4 identified underperforming landing pages.
 </li>
-<li><strong>Why:</strong> Reaching site-average product discovery across these 76,426 landings addresses the single largest funnel leak.
+<li><strong>Why:</strong> Reaching site-average product viewing on these pages is estimated to generate 316 incremental orders and $11.2k–$22.5k ($11,246–$22,493) in revenue, based on the assumption that added product-viewing sessions convert at 50–100% of today's saw-to-purchase rate.
 </li>
-<li><strong>Metric:</strong> Target 316 additional orders generating $11,246–$22,493 in revenue (based on the planning assumption that added product-viewing sessions convert at 50–100% of today's saw-to-purchase rate).
+<li><strong>Metric:</strong> Saw-a-product rate on the 4 targeted landing pages moving from ~8.9%–11.8% toward the 21.2% site average.
 </li>
 </ul>
 </li>
-<li><strong>Deploy cart recovery and user re-engagement flows</strong>
+<li><strong>Deploy cart recovery and user re-engagement</strong>
 <ul>
-<li><strong>What:</strong> Implement triggered email/SMS notifications for abandoned carts and retargeting campaigns for inactive users.
+<li><strong>What:</strong> Launch automated cart abandonment recovery and campaign re-engagement for identifiable users.
 </li>
-<li><strong>Why:</strong> Recovers revenue from 9,665 sessions that added items to cart but never reached checkout.
+<li><strong>Why:</strong> Recovering abandoned carts is projected to deliver 505 orders and $35,945 in revenue based on a planning assumption that 10.0% of abandoned carts reach checkout. Re-engagement is projected to add $2.6k–$12.0k ($2,563–$11,999) if Week-1 return reaches the 8.0% planning target assumption.
 </li>
-<li><strong>Metric:</strong> Target 505 cart recovery orders generating $35,945, along with $2,563–$11,999 in re-engagement revenue (based on planning assumptions of a 10.0% cart recovery rate to checkout and bringing Week-1 return rates to the 8.0% planning target).
+<li><strong>Metric:</strong> Cart-to-checkout rate (currently 35.0%) and Week-1 return rate (currently 4.2% average).
 </li>
 </ul>
 </li>
-<li><strong>Audit and update listing layouts for key category pages</strong>
+<li><strong>Audit listing layouts for Bags, Women's, and Men's / Unisex</strong>
 <ul>
-<li><strong>What:</strong> Redesign list displays, filtering, and item sorting for Bags, Women's, and Men's / Unisex listing pages.
+<li><strong>What:</strong> Optimize listing item ordering and visual presentation on these 3 specific product-type pages.
 </li>
-<li><strong>Why:</strong> These three categories represent 1,054 of the total 1,635 carts at stake across underperforming listing pages.
+<li><strong>Why:</strong> Bringing these listing pages to the product-type average targets 193 incremental orders and $6.9k–$13.7k ($6,869–$13,738) in revenue, assuming added carts convert at current rates.
 </li>
-<li><strong>Metric:</strong> Target 193 orders generating $6,869–$13,738 in revenue (based on the planning assumption that added carts convert at current cart-to-purchase rates).
+<li><strong>Metric:</strong> Seen-to-carted rate for Bags (13.6%), Women's (15.1%), and Men's / Unisex (19.7%) relative to the 22.1% site product-type average.
 </li>
 </ul>
 </li>
 </ol>
 <h3>What to Measure Next</h3>
 <ol>
-<li><strong>Landing Page Tag and Render Audit:</strong> Conduct a technical check to confirm whether <code>view_item</code> event tracking fires correctly on the four identified landing pages or if script errors and out-of-stock items prevent product rendering.
+<li><strong>Landing Page Tagging &amp; Render Audit:</strong> Inspect client-side event execution on the 4 low-discovery landing pages to verify whether <code>view_item</code> list impressions fail to trigger or if product listings are physically omitted/hidden.
 </li>
-<li><strong>Category Listing Composition Analysis:</strong> Evaluate whether items in Bags, Women's, and Men's / Unisex primarily appear within broad parent/collection lists or direct category views to isolate the effect of list context from pricing.
+<li><strong>Checkout Initiation Drop-off Analysis:</strong> Track specific interaction and error events occurring between <code>add_to_cart</code> and <code>begin_checkout</code> to identify technical or UX barriers stopping 9,665 carting sessions from starting checkout.
 </li>
-<li><strong>Cross-Session User Identification Validation:</strong> Measure production user login rates and persistent cookie tracking to validate what portion of abandoned carts belong to identifiable users eligible for automated recovery.
+<li><strong>Re-engagement Campaign Attribution:</strong> Evaluate conversion rates specifically for returning sessions driven by outbound notifications (email/SMS) versus unprompted organic direct returns to measure true campaign lift without self-selection bias.
 </li>
 </ol></div>
     </div>
