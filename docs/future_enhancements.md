@@ -215,7 +215,7 @@ no `gh-pages` branch and no copied file, so the live site can never drift from
 the committed deliverable. An `index.html` redirect makes the short URL open the
 dashboard, and an empty `.nojekyll` skips the Jekyll build. The README links to
 the live page and shows a preview screenshot (`assets/dashboard-preview.png`).
-Update steps are in DASHBOARD_GUIDE.md section 5.
+Update steps are in [DASHBOARD_GUIDE.md](DASHBOARD_GUIDE.md), section 5.
 
 **Live:** https://guiarpi.github.io/ga4-product-analytics/
 
@@ -257,44 +257,41 @@ closes the device question formally.
 
 ### E7 · Power BI dashboard build
 
-**Goal:** Implement the analysis as a Power BI report connected to BigQuery (Import mode),
-following the existing `POWERBI_GUIDE.md` step-by-step guide.
+**Status:** planned, not started. A step-by-step build guide exists but is kept out
+of the public repo until the build starts; it predates the listing-page, landing-page,
+price-band and retention-trend analyses and will be brought up to date first.
 
-**Why it matters:** `POWERBI_GUIDE.md` documents the full build — extraction SQL,
-data model, DAX measures for the funnel, and all five report pages — but the
-`.pbix` file has not been built yet. Completing it demonstrates BI tool
-proficiency alongside the Python/SQL work, and it shows the
-same analysis in a BI tool that many product and analytics teams use.
+**Goal:** Implement the analysis as a Power BI report connected to BigQuery (Import mode).
+
+**Why it matters:** the same analysis in a BI tool that many product and analytics teams
+use — warehouse SQL for the sequential logic, a model at the right grain, and business
+logic as DAX measures rather than pre-baked columns.
 
 **Subtasks:**
 
 | Step | What changes | Estimate |
 |---|---|---|
-| Provision a Windows VM or Parallels environment | External to this repo — documented in POWERBI_GUIDE.md section 1 | 1 h |
-| Connect Power BI Desktop to BigQuery using the extraction SQL from the guide | POWERBI_GUIDE.md section 3; SQL adapts the existing `generate_dashboard.py` queries | 1.5 h |
-| Build the data model (session-grain fact, session × category fact, users, weekly activity, date and helper dimensions) | POWERBI_GUIDE.md section 4 | 1 h |
-| Write DAX measures (funnel rates, channel spread and verdict, category benchmark and carts at stake, censored retention) | POWERBI_GUIDE.md section 5 | 2 h |
-| Build the 5 report pages | POWERBI_GUIDE.md sections 6–10 | 3 h |
-| QA against the notebook and `dashboard.html` | POWERBI_GUIDE.md section 13 checklist | 0.5 h |
-| Commit `.pbix` and PDF export to `powerbi/`, page screenshots to `assets/` | POWERBI_GUIDE.md section 14 (public-sample data only) | 1 h |
-| Add the "Power BI version" section to the README | Template in POWERBI_GUIDE.md section 14 | 0.5 h |
+| Bring the build guide up to date with the current analysis | Listing-page levels, landing pages, price bands, retention trend, recommendation sizing | 1.5 h |
+| Provision a Windows environment (VM) | External to this repo | 1 h |
+| Connect Power BI Desktop to BigQuery with extraction SQL adapted from `queries.py` | Flat, pre-computed result sets | 1.5 h |
+| Build the data model (session-grain fact, session × listing-page fact, users, weekly activity, date and helper dimensions) | — | 1 h |
+| Write DAX measures (funnel rates, channel spread and verdict, product-type average and carts at stake, censored retention) | — | 2 h |
+| Build the report pages and QA them against the notebook and `dashboard.html` | — | 3.5 h |
+| Publish screenshots and a PDF export; add a "Power BI version" section to the README | Public-sample data only | 1 h |
 
-**Effort:** 8–12 h | **Impact:** Medium | **Risk:** High | **Prerequisite:** E4
+**Effort:** 10–13 h | **Impact:** Medium | **Risk:** High | **Prerequisite:** E4
 
 > ⚠️ **Architecture note:** Power BI's BigQuery connector does not support
 > `UNNEST` in DirectQuery mode — the session-funnel logic must be fully
 > pre-computed in the extraction SQL (a single flat result set), not rebuilt in
-> DAX. This is a meaningful design difference from the Python approach, where the
-> nested GA4 schema is handled in BigQuery and results are passed to Python as flat
-> DataFrames. The extraction SQL in POWERBI_GUIDE.md already accounts for this.
+> DAX. In the Python version the nested schema is handled in BigQuery and the
+> results reach pandas as flat tables, so the same split applies.
 
-**Risk:** Requires a Windows environment (Parallels or a cloud VM). The BigQuery
-connector version in Power BI Desktop has changed since the guide was written —
-authentication steps may differ. Allow extra time for environment setup.
+**Risk:** Requires a Windows environment, and the connector's authentication steps
+change between Power BI Desktop versions. Allow extra time for setup.
 
-**Expected outcome:** A `.pbix` file (stored privately, not committed) and a
-multi-page PDF export that can be shared alongside the GitHub repo link in
-applications.
+**Expected outcome:** a multi-page report, with screenshots and a PDF export linked
+from the README; the `.pbix` file itself stays out of the repo.
 
 ---
 
