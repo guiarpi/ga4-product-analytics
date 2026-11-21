@@ -3,10 +3,17 @@
 Roadmap for extending this project. Items are grounded in the specific gaps and
 unanswered questions from the current analysis — not generic best practice.
 
-**Current state:** the project covers a 5-step session-scoped funnel, revenue
-metrics, device breakdown, time-to-convert, shoppers funnel, weekly cohort
-retention, and an AI-generated product brief — all run against the GA4 public
-e-commerce sample (Nov 2020 – Jan 2021).
+**Current state (2026-11-21):** E1–E6 are done. The analysis answers, in order: where the
+funnel leaks (including landing pages), whether it is the traffic, the device or the
+catalogue (listing pages and price bands), whether visitors come back (with the trend and
+new vs returning), and what to do — three recommendations sized in revenue — plus a
+data-quality section and an AI-written brief checked against the computed results. All
+against the GA4 public e-commerce sample (Nov 2020 – Jan 2021).
+
+Engineering work done alongside, outside the E-list: all SQL in one shared module
+(`queries.py`); the page as Jinja2 templates; a pytest suite run by GitHub Actions on every
+push (lint + tests, no BigQuery); a per-query cost cap with dry-run estimates; exact
+medians; a lock file of the versions behind the committed outputs.
 
 ---
 
@@ -20,35 +27,32 @@ e-commerce sample (Nov 2020 – Jan 2021).
 | E4 | Parameterised date range and config | ✅ done | 2–3 | Medium | Low | — |
 | E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
 | E6 | Statistical significance (device, channel, category) | ✅ done | 3–4 | Medium | Low | — |
-| E7 | Power BI dashboard build | | 8–12 | Medium | High | E4 |
-| E8 | GitHub Actions CI pipeline | | 4–6 | Low | High | E4, E5 |
+| E9 | Landing-page diagnosis: page, stock or tracking? | next | 2–3 | High | Low | — |
+| E10 | Cross-session purchase paths | next | 3–4 | Medium | Low | — |
+| E11 | Geography segment (`geo.country`) | | 2–3 | Medium | Low | — |
+| E12 | Period-over-period comparison | | 4–6 | Medium | Medium | a second data window |
+| E7 | Power BI dashboard build | planned | 10–13 | Medium | High | E4 |
+| E8 | Scheduled dashboard regeneration in CI | | 3–5 | Low | High | E4, E5 |
 
 ---
 
 ## Recommended sequence
 
-**Phase 1 — Deepen the analysis (E1, E2, E3)**
-These three are additive SQL queries and charts. They directly answer the
-three "What to Measure Next" questions left open by the AI product brief, and
-they require no architectural change. Do these first because they turn an
-interesting project into a complete one — the current analysis diagnoses the
-problem; these enhancements identify where to intervene.
+**Next — close the open questions in the current findings (E9, E10)**
+Recommendation 1 rests on four landing pages that rarely show a product, but the cause is
+not yet known; E9 decides whether it is a page, stock or tracking fix before anyone builds
+anything. E10 accounts for the 2,127 purchasing sessions the sequential funnel leaves out.
+Both use the data already in hand.
 
-**Phase 2 — Make it reusable and shareable (E4, E5)**
-Once the analysis is complete, make the project easy to run against any dataset
-and easy to share as a live link rather than a downloaded file. E4 (config)
-is a prerequisite for E7 and E8, so address it before those.
+**Then — widen the view (E11, E12)**
+A geography split is a cheap new segment for the existing funnel menu. Period-over-period
+comparison needs a second window of data; with it, the brief can reason about change, not
+just a snapshot.
 
-**Phase 3 — Add credibility and rigour (E6)**
-Statistical significance testing is a portfolio differentiator — it signals
-analytical rigour rather than just descriptive reporting. It does not change
-the findings (device variance is genuinely <0.1pp) but it formally closes that
-question.
-
-**Phase 4 — Platform extensions (E7, E8)**
-Power BI and CI/CD are high-effort and carry platform dependencies or secrets
-management complexity. Do them last, if at all, since their value is
-marginal once the core analysis is strong.
+**Last — platform extensions (E7, E8)**
+Power BI and scheduled regeneration carry platform dependencies or secret management. Their
+value is marginal once the analysis is complete. Test CI is already in place, so E8 is only
+the scheduled BigQuery run.
 
 ---
 
@@ -82,7 +86,7 @@ users). This segmentation would reprioritise the entire action list.
 
 **Effort:** 4–6 h | **Impact:** High | **Risk:** Low | **Prerequisite:** None
 
-**Status:** Implemented 2026-11-12 — notebook Sections 5c–5d, dashboard "Acquisition Channel" section, LLM context in 10c. First run: 8.7pp spread (cpc 21.6% → referral 30.3%), reported as borderline; 26.2% of sessions have no session-level medium and are disclosed separately.
+**Status:** Implemented 2026-11-12 — notebook Section 4 (then 5c–5d), dashboard section 4 "Is it the traffic?", LLM context in 9.3. First run: 8.7pp spread (cpc 21.6% → referral 30.3%), reported as borderline; 26.2% of sessions have no session-level medium and are disclosed separately.
 
 **Expected outcome:** A grouped bar chart showing funnel conversion for each
 channel (organic, cpc, email, direct, referral). If channels differ materially,
@@ -123,7 +127,7 @@ this enhancement identifies where within the product catalogue it is concentrate
 
 **Effort:** 5–7 h | **Impact:** High | **Risk:** Low | **Prerequisite:** None
 
-**Status:** Implemented 2026-11-12 — notebook Sections 7c–7d (added as 7c rather than a new Section 8, so Section 10 references stay valid), dashboard "Product Category" section, LLM context in 10c. First run: 38 of 74 categories ranked, benchmark 24.6%. The run surfaced duplicate labels (`Bags` vs `Lifestyle/Bags/`), now normalised to the last path segment in SQL.
+**Status:** Implemented 2026-11-12 — notebook Section 6 (then 7c–7d), dashboard section 6 "Where in the catalogue?", LLM context in 9.3. First run: 38 of 74 categories ranked, benchmark 24.6%. The run surfaced duplicate labels (`Bags` vs `Lifestyle/Bags/`), now normalised to the last path segment in SQL. **Revised 2026-11-20:** `item_category` turned out to be a listing context, not a product attribute (414 of 420 products appear under several), so rows are listing pages split by level from their paths; only product-type pages are ranked (6 of 12 below the 22.1% product-type average), and a price-band split was added.
 
 > ⚠️ **Architecture note:** the `items` array is only present on `view_item`,
 > `add_to_cart`, and `purchase` events — not on `session_start` or
@@ -163,7 +167,7 @@ lever is retention and re-engagement (email, retargeting), not acquisition.
 
 **Effort:** 4–5 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** None
 
-**Status:** Implemented 2026-11-19 — notebook Section 8c, dashboard "New vs Returning Sessions" card, LLM context in 10c. Sessions are flagged with GA4's `ga_session_number = 1` (first session ever for that cookie) rather than a `ROW_NUMBER()` over the window, so users first seen before the window are not misclassified as new. Computed on the same per-session scan as the data-quality checks (all sessions, the primary basis). First run: returning sessions buy at 1.69% vs 0.42% for new (4.1×, χ² p < 0.001) and earn $1.27 vs $0.27 per session. Because returners self-select, Recommendation 2 is sized as a range — extra returning users valued between the new and returning rates ($2.6k–$12.0k over the window). Still to do: the new vs returning option in the dashboard's segment dropdown (planned with the other interactive controls).
+**Status:** Implemented 2026-11-19 — notebook Section 7.4 (then 8c), dashboard section 7, LLM context in 9.3. Sessions are flagged with GA4's `ga_session_number = 1` (first session ever for that cookie) rather than a `ROW_NUMBER()` over the window, so users first seen before the window are not misclassified as new. Computed on the same per-session scan as the data-quality checks (all sessions, the primary basis). First run: returning sessions buy at 1.69% vs 0.42% for new (4.1×, χ² p < 0.001) and earn $1.27 vs $0.27 per session. Because returners self-select, Recommendation 2 is sized as a range — extra returning users valued between the new and returning rates ($2.6k–$12.0k over the window). The dashboard's funnel segment menu includes new and returning sessions (added 2026-11-20).
 
 **Expected outcome:** A chart showing funnel conversion for new vs return visitors.
 If return-visitor conversion is 2× or more, the narrative shifts: the product has
@@ -251,7 +255,7 @@ includes a one-line significance conclusion ("chi-square p=0.61 — device type
 does not significantly predict conversion, confirming the visual result"). This
 closes the device question formally.
 
-**Status:** Implemented 2026-11-19, widened beyond devices — shared helpers in `stats_utils.py` (Wilson interval, chi-square with Cramér's V; `scipy` added to requirements, no `statsmodels` needed), notebook Sections 5f and 7d, dashboard device table, channel and category sections, LLM context in 10c. First run: device × purchase χ² p = 0.259 (not significant; intervals overlap). Channel × saw-a-product is significant (p < 0.001) but small (Cramér's V = 0.069) — the page states that the site-vs-traffic verdict rests on practical size (the 10pp threshold), not significance. Categories are flagged as underperforming only when their whole 95% interval lies below the site average (12 of 23 below, 8 above, 3 indistinguishable), which replaces an arbitrary neutral band; carts at stake are counted for flagged categories only. The device result is shown as interval columns in the existing table rather than chart error bars, because the device breakdown is deliberately a table.
+**Status:** Implemented 2026-11-19, widened beyond devices — shared helpers in `stats_utils.py` (Wilson interval, chi-square with Cramér's V; `scipy` added to requirements, no `statsmodels` needed), notebook Sections 4.3, 5.3 and 6.4 (then 5f and 7d), dashboard device table, channel and catalogue sections, LLM context in 9.3. First run: device × purchase χ² p = 0.259 (not significant; intervals overlap). Channel × saw-a-product is significant (p < 0.001) but small (Cramér's V = 0.069) — the page states that the site-vs-traffic verdict rests on practical size (the 10pp threshold), not significance. Categories are flagged as underperforming only when their whole 95% interval lies below the site average (12 of 23 below, 8 above, 3 indistinguishable), which replaces an arbitrary neutral band; carts at stake are counted for flagged categories only. (Those category figures are from the first run; after the 2026-11-20 revision — see E2 — 6 of 12 product-type pages are below, 5 above and 1 indistinguishable.) The device result is shown as interval columns in the existing table rather than chart error bars, because the device breakdown is deliberately a table.
 
 ---
 
@@ -295,11 +299,14 @@ from the README; the `.pbix` file itself stays out of the repo.
 
 ---
 
-### E8 · GitHub Actions CI pipeline
+### E8 · Scheduled dashboard regeneration in CI
+
+**Status:** not started. GitHub Actions already runs lint and the test suite on every
+push (no BigQuery, no secrets); E8 is the scheduled BigQuery run on top of that.
 
 **Goal:** A GitHub Actions workflow that regenerates `dashboard.html` on a
-schedule (or on push to `main`) using BigQuery credentials stored as a GitHub
-secret, then commits it to `main`, which GitHub Pages serves (E5).
+schedule using BigQuery credentials stored as a GitHub secret, then commits it
+to `main`, which GitHub Pages serves (E5).
 
 **Why it matters:** At the moment, `dashboard.html` goes stale as soon as the
 underlying dataset or queries change. An automated pipeline would keep the live
@@ -310,13 +317,12 @@ engineering practices (automation, secret management, idempotent pipelines).
 
 | Step | What changes | Estimate |
 |---|---|---|
-| Create `.github/workflows/regenerate_dashboard.yml` | New file: triggers on schedule + push; runs `pip install -r requirements.txt`, `python generate_dashboard.py`, commits `dashboard.html` to `main` | 1.5 h |
+| Create `.github/workflows/regenerate_dashboard.yml` | New file: triggers on a weekly schedule; installs `requirements-lock.txt`, runs `python generate_dashboard.py` under the cost cap, commits `dashboard.html` to `main` | 1.5 h |
 | Store GCP service account key as a GitHub Actions secret | `Settings → Secrets → GOOGLE_APPLICATION_CREDENTIALS_JSON`; configure workflow to write it to a temp file and set `GOOGLE_APPLICATION_CREDENTIALS` env var | 1 h |
 | Store `ANTHROPIC_API_KEY` or `GEMINI_API_KEY` as a second secret | Allows the brief to regenerate in CI | 0.5 h |
-| Update `config.py` to read dates from environment variables | Enables the CI workflow to override dates if needed | 0.5 h |
 | Test the workflow on a branch before merging | Validate that the bot commit touches only `dashboard.html` | 1 h |
 
-**Effort:** 4–6 h | **Impact:** Low | **Risk:** High | **Prerequisite:** E4, E5
+**Effort:** 3–5 h | **Impact:** Low | **Risk:** High | **Prerequisite:** E4, E5
 
 > ⚠️ **Architecture note:** this requires committing a service account key as a
 > GitHub Actions secret — a meaningful change in the project's security posture.
@@ -327,9 +333,67 @@ engineering practices (automation, secret management, idempotent pipelines).
 **Risk:** Billing — even against a public dataset, a CI run on every push adds
 BigQuery costs. Limit the workflow trigger to `schedule` (weekly), not every push.
 
-**Expected outcome:** A GitHub Actions badge in the README showing the last
-successful pipeline run, and a live dashboard that updates weekly without
-any manual step.
+**Expected outcome:** a second badge in the README for the last successful
+regeneration, and a live dashboard that updates weekly without a manual step.
+
+---
+
+### E9 · Landing-page diagnosis: page, stock or tracking?
+
+**Goal:** For the four landing pages behind Recommendation 1 (Apparel listing, the Dino Game
+Tee page, `/store.html`, Drinkware), decide which of three causes explains the low
+saw-a-product rate.
+
+**Why it matters:** the fix differs completely — a page that fails to load products, a
+product that is unavailable, or a `view_item` tag that does not fire. Only the first two
+change orders; a tracking fix only changes the measured rate.
+
+**Approach:** per page and per week, compare `view_item` against other events that need
+products on screen (`select_item`, `view_item_list`, `add_to_cart` from the page), engagement
+time and scroll; check whether the low rate starts on a date (a release or a stock-out) or is
+constant; compare the Dino Game Tee page's sessions with and without a `view_item`.
+
+**Effort:** 2–3 h | **Impact:** High | **Risk:** Low | **Prerequisite:** —
+
+**Expected outcome:** each page labelled page, stock or tracking, and Recommendation 1's
+action and sizing updated to match.
+
+---
+
+### E10 · Cross-session purchase paths
+
+**Goal:** Account for the 2,127 purchasing sessions outside the sequential funnel — 2,000 of
+them with no add-to-cart in the same session.
+
+**Why it matters:** the session-scoped funnel undercounts buyers who cart in one visit and pay
+in another. A user-scoped view (cart in session N, purchase in session N+k) shows how large
+that path is and how long it takes, and tests the cart-recovery recommendation directly.
+
+**Effort:** 3–4 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** —
+
+---
+
+### E11 · Geography segment
+
+**Goal:** Add `geo.country` to the funnel segment menu and the channel-style spread test.
+
+**Why it matters:** a cheap check of whether the discovery loss is uniform across markets,
+reusing the existing funnel builder and significance helpers.
+
+**Effort:** 2–3 h | **Impact:** Medium | **Risk:** Low | **Prerequisite:** —
+
+---
+
+### E12 · Period-over-period comparison
+
+**Goal:** Run the same analysis on two windows and report what changed, with intervals on the
+differences; pass both periods to the LLM so the brief describes change, not a snapshot.
+
+**Why it matters:** every finding today is a single snapshot; a trend is what a product team
+acts on. The public sample covers only three months, so this needs a second export or a split
+of the window.
+
+**Effort:** 4–6 h | **Impact:** Medium | **Risk:** Medium | **Prerequisite:** a second data window
 
 ---
 
@@ -350,4 +414,4 @@ recorded here so it is deliberate rather than an oversight.
 
 ---
 
-*Last updated: 2026-11-12 · Project status: active — E1, E2 done*
+*Last updated: 2026-11-21 · Project status: active — E1–E6 done; E9 and E10 next*
