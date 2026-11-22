@@ -611,6 +611,62 @@ ORDER BY sessions DESC, landing_page
 """
 
 
+def landing_diagnosis_sql(dataset: str, start: str, end: str, pages: tuple = ("/",)) -> str:
+    """Why a landing page rarely shows a product: page, stock, tracking or the
+    traffic that lands there. For each page and week, the sessions that viewed it
+    split by entry — 'landed' (its first page_view) or 'inside' (reached from
+    another page) — with how many recorded view_item, scrolled, or carried no
+    medium tag, and their engagement time on the page. A page that works for
+    visitors who reach it from inside, but not for those who land on it, points
+    at the traffic; a dated run of weeks with no view_item while behaviour is
+    unchanged points at the tag. `pages` are paths without host or query."""
+    path = (f"REGEXP_REPLACE(REGEXP_REPLACE({param('page_location', 'string')}, "
+            f"r'^https?://[^/]+', ''), r'[?#].*$', '')")
+    page_list = ", ".join("'" + p.replace("\\", "").replace("'", "") + "'" for p in pages)
+    # One pass over the events: each session's landing page and tag, plus its
+    # events on the diagnosed pages as an array (a CTE referenced several times
+    # would be recomputed each time, with all the parameter unnesting).
+    return f"""WITH ev AS (
+  SELECT user_pseudo_id, {param('ga_session_id')} AS session_id, event_name, event_timestamp, event_date,
+    {path} AS page_path,
+    {param('medium', 'string')} AS medium,
+    IFNULL({param('engagement_time_msec')}, 0) AS eng_msec
+  FROM {events_from(dataset, start, end)}
+),
+sess AS (
+  SELECT user_pseudo_id, session_id,
+    ARRAY_AGG(IF(event_name = 'page_view', page_path, NULL) IGNORE NULLS
+              ORDER BY event_timestamp, page_path LIMIT 1)[SAFE_OFFSET(0)] AS landing_page,
+    LOGICAL_OR(medium IS NOT NULL) AS has_medium,
+    ARRAY_AGG(IF(page_path IN ({page_list}), STRUCT(page_path, event_name, event_date, eng_msec), NULL)
+              IGNORE NULLS) AS hits
+  FROM ev WHERE session_id IS NOT NULL
+  GROUP BY 1, 2
+  HAVING COUNTIF(page_path IN ({page_list})) > 0
+),
+on_page AS (   -- each session's activity on each diagnosed page
+  SELECT s.user_pseudo_id, s.session_id, h.page_path, ANY_VALUE(s.landing_page) AS landing_page,
+    ANY_VALUE(s.has_medium) AS has_medium,
+    DATE_TRUNC(PARSE_DATE('%Y%m%d', MIN(h.event_date)), WEEK(MONDAY)) AS week,
+    LOGICAL_OR(h.event_name = 'view_item') AS viewed_item,
+    LOGICAL_OR(h.event_name = 'scroll') AS scrolled,
+    SUM(h.eng_msec) / 1000 AS eng_s
+  FROM sess AS s, UNNEST(s.hits) AS h
+  GROUP BY 1, 2, 3
+  HAVING LOGICAL_OR(h.event_name = 'page_view')
+)
+SELECT page_path, week,
+  IF(landing_page = page_path, 'landed', 'inside') AS entry,
+  COUNT(*) AS sessions,
+  COUNTIF(viewed_item) AS view_item_sessions,
+  COUNTIF(scrolled) AS scrolled_sessions,
+  COUNTIF(NOT has_medium) AS untagged_sessions,
+  ROUND(SUM(eng_s), 1) AS eng_s_total
+FROM on_page
+GROUP BY 1, 2, 3
+ORDER BY 1, 2, 3
+"""
+
 def cohort_channel_sql(dataset: str, start: str, end: str) -> str:
     """Week-1 return by weekly cohort AND the channel of the user's first
     session in the window (the session's own medium, as in the channel

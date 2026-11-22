@@ -91,7 +91,7 @@ def test_dashboard_queries_list_matches_what_it_runs():
     # q() refuses unlisted builders at run time; this catches it before a run.
     import ast, pathlib
     src = pathlib.Path(__file__).resolve().parent.parent.joinpath("generate_dashboard.py").read_text()
-    called = set(re.findall(r"\bq\(queries\.(\w+_sql)\)", src))
+    called = set(re.findall(r"\bq\(queries\.(\w+_sql)\s*[,)]", src))   # with or without arguments
     tree = ast.parse(src)
     listed = next({e.attr for e in node.value.elts} for node in ast.walk(tree)
                   if isinstance(node, ast.Assign)
@@ -135,4 +135,11 @@ def test_landing_pages_use_the_funnel_session_table():
     assert "COUNTIF(s.s2) AS view_item" in sql and "WHERE s.s1" in sql
     assert "HAVING COUNT(*) >= 100" in sql
     assert "event_name = 'page_view'" in sql
+
+
+def test_landing_diagnosis_quotes_and_limits_its_pages():
+    sql = queries.landing_diagnosis_sql(*W, pages=("/a", "/b'c"))
+    assert "IN ('/a', '/bc')" in sql                 # a quote cannot break out of the list
+    assert "IF(landing_page = page_path, 'landed', 'inside')" in sql
+    assert sql.count("FROM `proj.dataset_x.events_*`") == 1     # one pass over the events
 

@@ -106,3 +106,56 @@ def test_weak_landing_pages_skip_pages_not_meant_to_show_products():
                           "sessions": [1000] * 4, "view_item": [0] * 4})
     assert list(weak_landing_pages(pages, 20.0, total_sessions=4000)["landing_page"]) == ["/Apparel"]
 
+
+# ── diagnose_landing_page ─────────────────────────────────────────────────────
+from metrics import diagnose_landing_page
+
+
+def _rows(weekly):
+    """weekly = [(week, entry, sessions, view_item, scrolled, untagged)]"""
+    return pd.DataFrame([{"week": w, "entry": e, "sessions": n, "view_item_sessions": v,
+                          "scrolled_sessions": sc, "untagged_sessions": u, "eng_s_total": n * 5.0}
+                         for w, e, n, v, sc, u in weekly])
+
+
+def test_silent_weeks_with_normal_behaviour_are_a_tracking_gap():
+    weeks = [(k, "landed", 500, 150 if k in (1, 2, 6, 7) else 2, 50, 10) for k in range(1, 8)]
+    d = diagnose_landing_page(_rows(weeks), site_view_pct=20.0)
+    assert d["verdict"] == "tracking"
+    assert (d["gap"]["start"], d["gap"]["end"], d["gap"]["weeks"]) == (3, 5, 3)
+
+
+def test_silent_weeks_with_collapsing_behaviour_are_the_page():
+    weeks = [(k, "landed", 500, 150 if k in (1, 2, 6, 7) else 2, 50 if k in (1, 2, 6, 7) else 5, 10) for k in range(1, 8)]
+    assert diagnose_landing_page(_rows(weeks), 20.0)["verdict"] == "page"
+
+
+def test_page_that_works_from_inside_points_at_entry_traffic():
+    rows = _rows([(k, "landed", 500, 25, 40, 300) for k in range(1, 6)] +
+                 [(k, "inside", 200, 60, 80, 5) for k in range(1, 6)])
+    d = diagnose_landing_page(rows, 20.0)
+    assert d["verdict"] == "entry traffic"
+    assert d["landed_rate"] == 5.0 and d["inside_rate"] == 30.0 and d["landed_untagged_pct"] == 60.0
+
+
+def test_page_that_fails_from_inside_too_is_the_page():
+    rows = _rows([(k, "landed", 500, 25, 40, 10) for k in range(1, 6)] +
+                 [(k, "inside", 200, 10, 30, 5) for k in range(1, 6)])
+    assert diagnose_landing_page(rows, 20.0)["verdict"] == "page"
+
+
+def test_a_long_gap_does_not_hide_itself():
+    # 7 silent weeks out of 13: a median baseline would be dragged down to the gap.
+    rates = [41, 7, 19, 23, 1, 0.3, 0.7, 2, 0.8, 0.3, 0.7, 48, 89]
+    weeks = [(k, "landed", 1000, int(r * 10), 70, 20) for k, r in enumerate(rates, start=1)]
+    d = diagnose_landing_page(_rows(weeks), 21.0)
+    assert d["verdict"] == "tracking" and (d["gap"]["start"], d["gap"]["end"]) == (5, 11)
+
+
+def test_a_steady_decline_is_not_a_gap():
+    rates = [28, 22, 22, 24, 17, 15, 11, 11, 8, 7, 8, 9, 9, 10]
+    rows = _rows([(k, "landed", 1000, int(r * 10), 150, 600) for k, r in enumerate(rates, start=1)] +
+                 [(k, "inside", 300, 90, 120, 5) for k in range(1, 15)])
+    d = diagnose_landing_page(rows, 21.0)
+    assert d["gap"] is None and d["verdict"] == "entry traffic"
+

@@ -13,6 +13,8 @@ generate_dashboard.py, kept here so they can be unit-tested (tests/).
   sits well under the site's.
 - mix_decomposition: how much of a change in a rate between two periods comes
   from a change in segment mix, and how much from within the segments.
+- diagnose_landing_page: tracking, page or entry traffic, from the weekly
+  landing_diagnosis_sql rows of one page.
 """
 
 import pandas as pd
@@ -133,4 +135,80 @@ def mix_decomposition(a: pd.DataFrame, b: pd.DataFrame,
     b_at_a = float((share_a * rates_b).sum())
     return {"rate_a": rate_a, "rate_b": rate_b, "rate_b_at_a_mix": b_at_a,
             "change_pp": rate_b - rate_a, "within_pp": b_at_a - rate_a, "mix_pp": rate_b - b_at_a}
+
+
+# ── Landing-page diagnosis ────────────────────────────────────────────────────
+GAP_SHARE = 0.10      # a "silent" week: view_item rate under 10% of the page's working rate
+WORKING_QUANTILE = 0.75   # the working rate: its 75th-percentile week, which a long gap cannot drag down
+GAP_WEEKS = 3         # … for at least 3 consecutive weeks
+GAP_MIN_SESSIONS = 100
+SCROLL_KEPT = 0.5     # behaviour counts as unchanged if scrolling stays ≥ half its usual rate
+INSIDE_LIFT_PP = 10   # the page "works" if inside visitors see products ≥ 10pp more often
+
+
+def diagnose_landing_page(rows: pd.DataFrame, site_view_pct: float) -> dict:
+    """Classify why one landing page rarely shows a product.
+
+    rows: landing_diagnosis_sql output for one page (week, entry, sessions,
+    view_item_sessions, scrolled_sessions, untagged_sessions, eng_s_total).
+
+    verdict:
+    - "tracking": a run of ≥ GAP_WEEKS consecutive weeks (each with
+      ≥ GAP_MIN_SESSIONS sessions) whose view_item rate is under GAP_SHARE of
+      the page's working rate (its WORKING_QUANTILE weekly rate — a median would
+      be dragged down by a long gap itself), while scrolling stays at
+      ≥ SCROLL_KEPT of its rate outside the run — visitors behave as usual but
+      the tag is silent;
+    - "page": the same kind of run with behaviour collapsing too, or visitors
+      who reach the page from inside the site also seeing products at under
+      half the site rate — the page itself does not show them;
+    - "entry traffic": otherwise, when inside visitors see products at least
+      INSIDE_LIFT_PP points more often than landing ones — the page works and
+      the gap is in who lands on it;
+    - "unclear": none of the above.
+    """
+    rate = lambda d: float(d["view_item_sessions"].sum()) / float(d["sessions"].sum()) * 100 if d["sessions"].sum() else float("nan")
+    scroll = lambda d: float(d["scrolled_sessions"].sum()) / float(d["sessions"].sum()) * 100 if d["sessions"].sum() else float("nan")
+    landed, inside = rows[rows["entry"] == "landed"], rows[rows["entry"] == "inside"]
+    weekly = rows.groupby("week")[["sessions", "view_item_sessions", "scrolled_sessions"]].sum().sort_index()
+    weekly["rate"] = weekly["view_item_sessions"] / weekly["sessions"] * 100
+    busy = weekly[weekly["sessions"] >= GAP_MIN_SESSIONS]
+
+    # Longest run of consecutive busy weeks that are "silent" against the other weeks.
+    gap = None
+    if len(busy) > GAP_WEEKS:
+        working = float(busy["rate"].quantile(WORKING_QUANTILE))
+        best, run = [], []
+        for w in busy.index:
+            if busy.loc[w, "rate"] < GAP_SHARE * working:
+                run.append(w)
+                if len(run) > len(best):
+                    best = list(run)
+            else:
+                run = []
+        if len(best) >= GAP_WEEKS:
+            in_gap, out_gap = busy.loc[best], busy.drop(index=best)
+            gap = {"start": best[0], "end": best[-1], "weeks": len(best), "working_rate": working,
+                   "rate_in": rate(in_gap), "rate_out": rate(out_gap),
+                   "scroll_in": scroll(in_gap), "scroll_out": scroll(out_gap),
+                   "sessions_in": int(in_gap["sessions"].sum())}
+
+    out = {"landed_sessions": int(landed["sessions"].sum()), "inside_sessions": int(inside["sessions"].sum()),
+           "landed_rate": rate(landed), "inside_rate": rate(inside),
+           "landed_untagged_pct": (float(landed["untagged_sessions"].sum()) / float(landed["sessions"].sum()) * 100
+                                   if landed["sessions"].sum() else float("nan")),
+           "landed_eng_s": (float(landed["eng_s_total"].sum()) / float(landed["sessions"].sum())
+                            if landed["sessions"].sum() else float("nan")),
+           "inside_eng_s": (float(inside["eng_s_total"].sum()) / float(inside["sessions"].sum())
+                            if inside["sessions"].sum() else float("nan")),
+           "gap": gap}
+    if gap and gap["scroll_in"] >= SCROLL_KEPT * gap["scroll_out"]:
+        out["verdict"] = "tracking"
+    elif gap or (out["inside_sessions"] >= GAP_MIN_SESSIONS and out["inside_rate"] < site_view_pct / 2):
+        out["verdict"] = "page"
+    elif out["inside_sessions"] >= GAP_MIN_SESSIONS and out["inside_rate"] >= out["landed_rate"] + INSIDE_LIFT_PP:
+        out["verdict"] = "entry traffic"
+    else:
+        out["verdict"] = "unclear"
+    return out
 
