@@ -213,3 +213,18 @@ def test_segment_spread_verdict_follows_practical_size_not_significance():
     df = pd.DataFrame({"country": ["A", "B"], "sessions": [500000, 500000], "view_item": [105000, 100000]})
     s = segment_spread(df, "country")
     assert s["test"]["p"] < 0.001 and s["verdict"] == "uniform"    # significant, but a 1pp gap
+
+
+# ── E12: compare_periods ──────────────────────────────────────────────────────
+from metrics import compare_periods
+
+
+def test_compare_periods_rates_changes_and_intervals():
+    cur = {"sessions": 10000, "view_item": 2500, "add_to_cart": 500, "begin_checkout": 200, "purchase": 100}
+    prev = {"sessions": 10000, "view_item": 2000, "add_to_cart": 400, "begin_checkout": 160, "purchase": 80}
+    c = compare_periods(cur, prev).set_index("rate")
+    assert c.loc["Saw a product", "current_pct"] == 25.0 and c.loc["Saw a product", "previous_pct"] == 20.0
+    assert c.loc["Saw a product", "change_pp"] == pytest.approx(5.0) and c.loc["Saw a product", "changed"]
+    assert c.loc["Saw → carted", "change_pp"] == pytest.approx(0.0) and not c.loc["Saw → carted", "changed"]
+    assert c.loc["Session → purchase", "ci_lo"] < c.loc["Session → purchase", "change_pp"] < c.loc["Session → purchase", "ci_hi"]
+

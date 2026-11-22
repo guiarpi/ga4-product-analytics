@@ -5,7 +5,7 @@ import sys
 import pytest
 
 ENV = ("GA4_PROJECT_ID", "GA4_DATASET", "GA4_DATE_START", "GA4_DATE_END",
-       "GA4_MAX_BYTES_BILLED")
+       "GA4_MAX_BYTES_BILLED", "GA4_COMPARE_START", "GA4_COMPARE_END")
 
 
 def load_config(monkeypatch, **env):
@@ -128,4 +128,33 @@ def test_run_query_explains_a_refused_query(monkeypatch):
     other = gexc.BadRequest("Syntax error", errors=[{"reason": "invalidQuery"}])
     with pytest.raises(gexc.BadRequest):          # other errors pass through unchanged
         cfg.run_query(_FakeClient(other), "SELECT 1")
+
+
+# ── Period comparison (E12) ───────────────────────────────────────────────────
+
+def test_public_sample_compares_january_with_november(monkeypatch):
+    cfg = load_config(monkeypatch)
+    assert cfg.HAS_COMPARISON
+    assert (cfg.CURRENT_START, cfg.CURRENT_END) == ("20210101", "20210131")
+    assert (cfg.COMPARE_START, cfg.COMPARE_END) == ("20201101", "20201130")
+    assert (cfg.CURRENT_LABEL, cfg.COMPARE_LABEL) == ("Jan 2021", "Nov 2020")
+
+
+def test_other_data_has_no_comparison_unless_set(monkeypatch):
+    cfg = load_config(monkeypatch, GA4_DATASET="my-project.analytics_1", GA4_DATE_START="20240101", GA4_DATE_END="20240331")
+    assert not cfg.HAS_COMPARISON and cfg.COMPARE_LABEL is None
+    cfg = load_config(monkeypatch, GA4_DATASET="my-project.analytics_1", GA4_DATE_START="20240101", GA4_DATE_END="20240331",
+                      GA4_COMPARE_START="20231001", GA4_COMPARE_END="20231231")
+    assert cfg.HAS_COMPARISON and cfg.CURRENT_START == "20240301" and cfg.COMPARE_LABEL == "Oct 2023 – Dec 2023"
+
+
+@pytest.mark.parametrize("env, message", [
+    ({"GA4_COMPARE_START": "20210110", "GA4_COMPARE_END": "20210120"}, "overlaps"),
+    ({"GA4_COMPARE_START": "20201101"}, "both"),
+    ({"GA4_COMPARE_START": "20201130", "GA4_COMPARE_END": "20201101"}, "after"),
+    ({"GA4_COMPARE_START": "2020-11-01", "GA4_COMPARE_END": "20201130"}, "GA4_COMPARE_START"),
+])
+def test_bad_comparison_window_is_rejected(monkeypatch, env, message):
+    with pytest.raises(ValueError, match=message):
+        load_config(monkeypatch, **env)
 

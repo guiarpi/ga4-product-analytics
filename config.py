@@ -11,6 +11,8 @@ GA4 export is a shell setting, not a code change.
     export GA4_DATE_START="20240101"                    # YYYYMMDD, inclusive
     export GA4_DATE_END="20240331"                      # YYYYMMDD, inclusive
     export GA4_MAX_BYTES_BILLED="20GB"                  # per-query cost cap (default 5GB)
+    export GA4_COMPARE_START="20231001"                 # period comparison: the earlier window,
+    export GA4_COMPARE_END="20231231"                   #   compared with the main window's last month
 
 GA4_PROJECT_ID falls back to GOOGLE_CLOUD_PROJECT, then to the default project
 of your gcloud login (Application Default Credentials). Leave the dataset and
@@ -103,6 +105,34 @@ END   = _parse("GA4_DATE_END", DATE_END)
 if START > END:
     raise ValueError(f"GA4_DATE_START ({DATE_START}) is after GA4_DATE_END ({DATE_END})")
 MAX_BYTES_BILLED = parse_bytes("GA4_MAX_BYTES_BILLED", MAX_BYTES_BILLED_TEXT)
+
+
+# ── Period comparison (E12) ───────────────────────────────────────────────────
+# The CURRENT period is the main window's last calendar month (from its first day,
+# or DATE_START if later, to DATE_END). The COMPARISON period is GA4_COMPARE_START –
+# GA4_COMPARE_END; on the public sample it defaults to November 2020, so January
+# 2021 is compared with a month that is not December's holiday season either.
+# Unset on other data → no comparison. The two periods may not overlap.
+_cur_start = max(START, END.replace(day=1))
+CURRENT_START, CURRENT_END = f"{_cur_start:%Y%m%d}", DATE_END
+_cmp_env = [(os.environ.get(k) or "").strip() or None for k in ("GA4_COMPARE_START", "GA4_COMPARE_END")]
+if (_cmp_env[0] is None) != (_cmp_env[1] is None):   # checked before any default fills the other
+    raise ValueError("Set both GA4_COMPARE_START and GA4_COMPARE_END, or neither")
+_cmp_default = ("20201101", "20201130") if DATASET == PUBLIC_SAMPLE_DATASET else (None, None)
+COMPARE_START, COMPARE_END = _cmp_env if _cmp_env[0] else _cmp_default
+HAS_COMPARISON = COMPARE_START is not None
+if HAS_COMPARISON:
+    _c0, _c1 = _parse("GA4_COMPARE_START", COMPARE_START), _parse("GA4_COMPARE_END", COMPARE_END)
+    if _c0 > _c1:
+        raise ValueError(f"GA4_COMPARE_START ({COMPARE_START}) is after GA4_COMPARE_END ({COMPARE_END})")
+    if not (_c1 < _cur_start or _c0 > END):
+        raise ValueError(f"The comparison window {COMPARE_START}–{COMPARE_END} overlaps the current period "
+                         f"{CURRENT_START}–{CURRENT_END}")
+    COMPARE_LABEL = f"{_c0:%b %Y}" if (_c0.year, _c0.month) == (_c1.year, _c1.month) else f"{_c0:%b %Y} – {_c1:%b %Y}"
+else:
+    COMPARE_LABEL = None
+CURRENT_LABEL = f"{_cur_start:%b %Y}" if (_cur_start.year, _cur_start.month) == (END.year, END.month) \
+                else f"{_cur_start:%b %Y} – {END:%b %Y}"
 
 
 # ── Labels used in charts, the dashboard and the AI brief ─────────────────────

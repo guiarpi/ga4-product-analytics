@@ -19,6 +19,8 @@ generate_dashboard.py, kept here so they can be unit-tested (tests/).
   often abandoned carts come back in a later session (E10).
 - segment_spread: is a funnel rate uniform across segments (channels,
   countries)? Spread, chi-square, Cramér's V and a practical-size verdict.
+- compare_periods: each funnel rate in two periods, the change in points with
+  a 95% interval on the difference (E12).
 """
 
 import pandas as pd
@@ -286,3 +288,32 @@ def segment_spread(df: pd.DataFrame, segment: str, success: str = "view_item", b
             "test": chi_square(d[success], d[base]),
             "best": (d[segment].iloc[0], float(d["rate"].iloc[0])),
             "worst": (d[segment].iloc[-1], float(d["rate"].iloc[-1]))}
+
+
+# ── Period comparison (E12) ───────────────────────────────────────────────────
+FUNNEL_RATES = (   # (label, numerator column, denominator column)
+    ("Saw a product", "view_item", "sessions"),
+    ("Saw → carted", "add_to_cart", "view_item"),
+    ("Cart → checkout", "begin_checkout", "add_to_cart"),
+    ("Checkout → purchase", "purchase", "begin_checkout"),
+    ("Session → purchase", "purchase", "sessions"),
+)
+
+
+def compare_periods(current: dict, previous: dict) -> pd.DataFrame:
+    """Each funnel rate in the current and the previous period, and the change
+    in percentage points with Newcombe's 95% interval on the difference.
+    current / previous map the STEP_COLUMNS (sessions, view_item, …, purchase)
+    to counts. changed = the interval excludes zero (a real change at 95%);
+    it says nothing about whether the change matters in practice."""
+    from stats_utils import diff_ci
+    rows = []
+    for label, num, den in FUNNEL_RATES:
+        d, lo, hi = diff_ci(int(current[num]), int(current[den]), int(previous[num]), int(previous[den]))
+        rows.append({"rate": label,
+                     "current_pct": current[num] / current[den] * 100 if current[den] else float("nan"),
+                     "previous_pct": previous[num] / previous[den] * 100 if previous[den] else float("nan"),
+                     "change_pp": d, "ci_lo": lo, "ci_hi": hi,
+                     "changed": bool(lo > 0 or hi < 0)})
+    return pd.DataFrame(rows)
+

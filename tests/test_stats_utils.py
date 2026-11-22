@@ -3,7 +3,7 @@ import math
 
 import pytest
 
-from stats_utils import chi_square, format_p, wilson_ci
+from stats_utils import chi_square, format_p, wilson_ci, diff_ci
 
 
 def test_wilson_half_proportion():
@@ -56,3 +56,16 @@ def test_chi_square_identical_rates_is_not_significant():
 @pytest.mark.parametrize("p, text", [(0.2587, "p = 0.259"), (0.001, "p = 0.001"), (0.0009, "p < 0.001"), (0.0, "p < 0.001")])
 def test_format_p(p, text):
     assert format_p(p) == text
+
+
+def test_diff_ci_matches_newcombes_worked_example():
+    # Newcombe (1998), method 10: 56/70 vs 48/80 → 0.2000 (0.0524, 0.3339)
+    d, lo, hi = diff_ci(56, 70, 48, 80)
+    assert round(d, 2) == 20.0
+    assert round(lo / 100, 4) == 0.0524 and round(hi / 100, 4) == 0.3339
+
+
+def test_diff_ci_is_symmetric_in_sign():
+    d, lo, hi = diff_ci(48, 80, 56, 70)
+    assert round(d, 2) == -20.0 and round(lo / 100, 4) == -0.3339 and round(hi / 100, 4) == -0.0524
+

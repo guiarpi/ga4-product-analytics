@@ -29,6 +29,21 @@ def wilson_ci(successes: int, n: int, z: float = Z95) -> tuple[float, float]:
     return (centre - half) * 100, (centre + half) * 100
 
 
+def diff_ci(k1: int, n1: int, k2: int, n2: int, z: float = Z95) -> tuple[float, float, float]:
+    """Difference of two proportions, k1/n1 − k2/n2, with Newcombe's hybrid
+    Wilson score interval (method 10, Newcombe 1998) — better behaved than the
+    Wald interval for small or extreme rates. Returns (difference, lower,
+    upper) in percentage points."""
+    if n1 <= 0 or n2 <= 0:
+        return float("nan"), float("nan"), float("nan")
+    p1, p2 = k1 / n1, k2 / n2
+    l1, u1 = (v / 100 for v in wilson_ci(k1, n1, z))
+    l2, u2 = (v / 100 for v in wilson_ci(k2, n2, z))
+    d = p1 - p2
+    lower = d - sqrt((p1 - l1) ** 2 + (u2 - p2) ** 2)
+    upper = d + sqrt((u1 - p1) ** 2 + (p2 - l2) ** 2)
+    return d * 100, lower * 100, upper * 100
+
 def chi_square(successes, totals) -> dict:
     """Chi-square test that the success rate is the same in every group.
 
