@@ -301,6 +301,14 @@
       <p><strong>Statistics.</strong> Rates carry Wilson 95% intervals; group differences are tested with
       chi-square and sized with Cramér's V. A listing page is flagged only when its whole interval lies on one
       side of the average. Medians are exact (<code>PERCENTILE_CONT</code>), so every run gives the same page.</p>
+      <p><strong>Landing-page diagnosis.</strong> For each weak landing page (at least 1% of sessions, 5pp or more
+      under the site's product-view rate; sign-in, cart, checkout and policy pages excluded), visitors who land on
+      it are compared with visitors who reach it from inside the site, week by week. <em>Tracking</em>: at least
+      {{ GAP_WEEKS }} consecutive weeks with {{ GAP_MIN_SESSIONS }}+ sessions whose <code>view_item</code> rate is under
+      {{ (GAP_SHARE * 100)|fmt('.0f') }}% of the page's working rate (its 75th-percentile week), while scrolling stays at
+      least {{ (SCROLL_KEPT * 100)|fmt('.0f') }}% of its usual level. <em>Page</em>: the same with behaviour collapsing, or
+      inside visitors also seeing products at under half the site rate. <em>Entry traffic</em>: the page works for inside
+      visitors ({{ INSIDE_LIFT_PP }}pp or more above landing ones). Thresholds are analyst-set.</p>
       <p><strong>Retention.</strong> Monday-anchored weekly cohorts by first session in the window;
       right-censored cells are blank, and a partial first week is excluded from the averages. The retention
       trend splits a change in Week-1 return into channel mix and within-channel change, using the channel of

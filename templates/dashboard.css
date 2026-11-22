@@ -171,6 +171,13 @@
                      font-size: 0.72rem; color: #374151; word-break: break-all; }
   .rec-table { margin: 8px 0 4px; font-size: 0.78rem; }
   .rec-table td { padding: 6px 6px; }
+  .rec-table .diag { display: block; margin-top: 3px; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+                     font-size: 0.66rem; font-weight: 700; text-transform: uppercase; letter-spacing: 0.6px;
+                     word-break: normal; white-space: nowrap; }
+  .rec-table .diag-entry-traffic { color: #c2410c; }   /* a real gap: orange = below */
+  .rec-table .diag-page { color: #c2410c; }
+  .rec-table .diag-tracking, .rec-table .diag-unclear { color: #6b7280; }   /* measurement: grey = not a real gap */
+  .rec code { overflow-wrap: anywhere; }   /* long paths wrap; short names stay whole */
   .loss-table td { padding: 7px 6px; }
   .loss-table .dev-name { text-transform: none; font-weight: 500; }
 

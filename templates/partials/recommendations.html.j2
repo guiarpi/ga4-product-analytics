@@ -6,59 +6,81 @@
 
     <div class="rec">
       <span class="rec-priority p1">Priority 1</span>
-      <h4>Fix the landing pages that don't show products</h4>
+      <h4>Fix discovery on the weakest landing pages</h4>
       <div class="rec-section">
         <div class="rec-section-label">Problem</div>
         <p><strong>{{ total_lost_discovery|fmt(',') }} sessions ({{ (100 - view_rate)|fmt('.0f') }}%)</strong> never see a product.
         {% if weak_pages_n %}{{ weak_pages_n }} landing page{{ 's' if weak_pages_n > 1 }} take{{ '' if weak_pages_n > 1 else 's' }} {{ weak_landings|fmt(',') }} landings
         ({{ weak_share|fmt('.0f') }}% of sessions) but show a product to far fewer of them than the site's
-        {{ view_rate|fmt('.1f') }}%:{% endif %}</p>
+        {{ view_rate|fmt('.1f') }}%. Comparing the visitors who land on each page with those who reach it from
+        inside the site, week by week, separates the causes:{% endif %}</p>
         {% if weak_pages_n %}
         <table class="dev-table rec-table">
-          <thead><tr><th>Landing page</th><th>Landings</th><th>Saw a product</th></tr></thead>
+          <thead><tr><th>Landing page · diagnosis</th><th>Landings</th><th>Saw a product</th><th>From inside</th></tr></thead>
           <tbody>
 {% for r in weak_page_rows -%}
-<tr><td class="path">{{ r.landing_page }}</td><td>{{ r.sessions|int|fmt(',') }}</td><td class="dev-key">{{ r.view_pct|fmt('.1f') }}%</td></tr>
+<tr><td class="path">{{ r.landing_page }}<span class="diag diag-{{ r.diagnosis|replace(' ', '-') }}">{{ r.diagnosis }}</span></td><td>{{ r.sessions|int|fmt(',') }}</td><td class="dev-key">{{ r.view_pct|fmt('.1f') }}%</td><td>{{ r.inside_rate|fmt('.1f') }}%</td></tr>
 {% endfor %}
           </tbody>
         </table>
+        <p class="table-note">Saw a product: landing sessions that saw any product (site: {{ view_rate|fmt('.1f') }}%).
+        From inside: visitors who reached the page from another page and saw products on it.</p>
+        {% if entry_pages_n %}<p><strong>Entry traffic{% if entry_pages_n > 1 %} ({{ entry_pages_n }} pages){% endif %}.</strong> The page{{ 's work' if entry_pages_n > 1 else ' works' }}:
+        visitors who reach {{ 'them' if entry_pages_n > 1 else 'it' }} from inside the site see products
+        {% if entry_inside_lo|round(1) != entry_inside_hi|round(1) %}{{ entry_inside_lo|fmt('.1f') }}–{{ entry_inside_hi|fmt('.1f') }}%{% else %}{{ entry_inside_lo|fmt('.1f') }}%{% endif %} of the time
+        and stay {{ entry_inside_eng|fmt('.0f') }}s on average; visitors who land there stay {{ entry_landed_eng|fmt('.0f') }}s,
+        and {{ entry_untagged_pct|fmt('.0f') }}% of those landings carry no channel tag.</p>{% endif %}
+        {% for r in tracking_pages %}<p><strong>Tracking</strong> (<code>{{ r.landing_page }}</code>). <code>view_item</code> was
+        almost silent from {{ r.gap_from }} to {{ r.gap_to }} ({{ r.gap.rate_in|fmt('.1f') }}% of visits, against
+        {{ r.gap.rate_out|fmt('.1f') }}% in other weeks) while visitors scrolled much as usual ({{ r.gap.scroll_in|fmt('.1f') }}%
+        against {{ r.gap.scroll_out|fmt('.1f') }}%); it fires again from {{ r.resumed }}. A measurement gap, not lost
+        product views, so it is left out of the sizing.</p>{% endfor %}
+        {% if page_fail_n %}<p><strong>Page{% if page_fail_n > 1 %} ({{ page_fail_n }}){% endif %}.</strong> Visitors see few products
+        whether they land or arrive from inside the site: the page itself does not show them.</p>{% endif %}
         {% endif %}
       </div>
       <div class="rec-section">
         <div class="rec-section-label">Action</div>
-        <p>{% if weak_pages_n %}Open each of these pages as a first-time visitor: does the product grid
-        load, is the product in stock, and does <code>view_item</code> fire? {{ weak_new_pct|fmt('.0f') }}% of their
-        landings are first visits, so this is where new visitors meet the store. Fix what is broken,
-        then point campaigns and search snippets only at pages that show products.{% else %}No landing page with real
-        volume sits far below the site rate, so the loss is spread across pages: test product lists
-        above the fold on the home page.{% endif %}
+        <p>{% if entry_pages_n %}For the entry-traffic page{{ 's' if entry_pages_n > 1 }}: find what sends the landing
+        visitors — most carry no channel tag, so start with campaign, partner and email links without UTM
+        parameters, then organic results whose snippet does not match the page — and send that traffic to
+        pages that hold visitors, or show products above the fold to first-time visitors.{% endif %}
+        {% if page_fail_n %}For the failing page{{ 's' if page_fail_n > 1 }}: open {{ 'them' if page_fail_n > 1 else 'it' }} as a
+        first-time visitor and check that the product list loads and the products are in stock.{% endif %}
+        {% if tracking_pages %}For tracking: add an alert when a page's <code>view_item</code> rate drops to near zero for a
+        week, so a silent tag is caught in days, not weeks.{% endif %}
+        {% if not weak_pages_n %}No landing page with real volume sits far below the site rate, so the loss is
+        spread across pages: test product lists above the fold on the home page.{% endif %}
         {%- if home_share %} The home page takes {{ home_share|fmt('.0f') }}% of landings and shows a product to
         {{ home_view_pct|fmt('.1f') }}% of them; test a product grid above the fold there next.{% endif %}</p>
       </div>
       <div class="rec-section rec-impact">
         <div class="rec-section-label">Sized impact</div>
-        {% if weak_pages_n %}
-        <p>At the site rate these pages would add ~{{ weak_extra_views|fmt(',') }} product-viewing sessions,
-        ~{{ rec1_orders|fmt(',') }} orders at today's {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw → purchase rate:
+        {% if real_pages_n %}
+        <p>Bringing the {{ real_pages_n }} page{{ 's' if real_pages_n > 1 }} {{ 'that are' if real_pages_n > 1 else 'that is' }} not a tracking gap to the site rate would add
+        ~{{ weak_extra_views|fmt(',') }} product-viewing sessions, ~{{ rec1_orders|fmt(',') }} orders at today's
+        {{ (view_to_purchase_rate * 100)|fmt('.1f') }}% saw → purchase rate:
         <strong>${{ rec1_rev_low|fmt(',.0f') }}–${{ rec1_rev_high|fmt(',.0f') }}</strong> over the window
         (low end: the added sessions convert at half today's rate).</p>
+        {% elif weak_pages_n %}
+        <p>Every weak page is a tracking gap, so there is no product-view opportunity to size.</p>
         {% else %}
         <p>See the +5pp scenario in the funnel section: <strong>${{ lift_5pp_rev_50|fmt(',.0f') }}–${{ lift_5pp_revenue|fmt(',.0f') }}</strong>.</p>
         {% endif %}
       </div>
       <div class="rec-section">
         <div class="rec-section-label">Metric · target</div>
-        <p>Share of these pages' landings that see a product · {{ view_rate|fmt('.1f') }}% (the site rate)</p>
+        <p>Share of {{ "these pages' landings" if real_pages_n > 1 else "the page's landings" }} that see a product · {{ view_rate|fmt('.1f') }}% (the site rate)</p>
       </div>
       <div class="rec-section">
         <div class="rec-section-label">Confidence</div>
-        <p><strong>Medium.</strong> The low rates are measured; the cause (page not loading, product
-        unavailable, or <code>view_item</code> not firing) is not.</p>
+        <p><strong>Medium.</strong> The diagnosis is measured — landing and inside visitors, week by week, against
+        stated thresholds (see the appendix). What sends the low-intent landing traffic is not yet known.</p>
       </div>
       <div class="rec-section">
         <div class="rec-section-label">Main risk</div>
-        <p>If it is a tracking gap, the fix raises the measured view rate but not orders.
-        {% if weak_pages_n %}{{ weak_unattr_pct|fmt('.0f') }}% of these landings carry no channel tag, so many are very short sessions.{% endif %}
+        <p>{% if entry_pages_n %}Many of these landings are very short, untagged sessions; if a large share are
+        automated or accidental visits, the reachable opportunity is smaller than sized.{% endif %}
         {% if channel_is_driver %}Channel reach differs by {{ channel_view_spread|fmt('.1f') }}pp, so part of the gap may be the traffic, not the page.{% endif %}</p>
       </div>
     </div>

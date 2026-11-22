@@ -44,7 +44,8 @@ from config import (DATASET, DATE_START, DATE_END, IS_PUBLIC_SAMPLE, MAX_BYTES_B
                     make_client, describe, run_query, estimate_bytes, format_bytes)
 from stats_utils import wilson_ci, chi_square, format_p
 from metrics import (site_average, flag_categories, listing_levels,
-                     weak_landing_pages, mix_decomposition)
+                     weak_landing_pages, mix_decomposition, diagnose_landing_page)
+import metrics
 from md_render import md_to_html
 import charts
 import queries
@@ -61,6 +62,7 @@ DASHBOARD_QUERIES = (
     queries.session_quality_sql, queries.event_quality_sql, queries.device_funnel_sql,
     queries.channel_funnel_sql, queries.shoppers_funnel_sql, queries.category_sql,
     queries.category_overlap_sql, queries.price_band_sql, queries.landing_pages_sql,
+    queries.landing_diagnosis_sql,
     queries.time_to_convert_sql, queries.cohort_sql, queries.cohort_channel_sql,
 )
 
@@ -95,12 +97,14 @@ if args.dry_run:
     sys.exit(1 if over else 0)
 
 
-def q(build) -> pd.DataFrame:
-    """Run one of DASHBOARD_QUERIES for the configured window, under the cost cap."""
+def q(build, **kwargs) -> pd.DataFrame:
+    """Run one of DASHBOARD_QUERIES for the configured window, under the cost cap.
+    kwargs go to the builder (e.g. the pages to diagnose); --dry-run estimates the
+    builder with its defaults, which scan the same tables."""
     if build not in DASHBOARD_QUERIES:
         raise ValueError(f"{build.__name__} is not in DASHBOARD_QUERIES — add it there "
                          "so --dry-run estimates it too")
-    return run_query(client, build(*WINDOW))
+    return run_query(client, build(*WINDOW, **kwargs))
 
 # ══════════════════════════════════════════════════════════════════════════════
 # QUERIES
@@ -675,14 +679,59 @@ lift_5pp_rev_75 = round(lift_5pp_revenue * 0.75, 0)
 # ── Recommendation 1: the landing pages that fail to show products ───────────
 # The exact rate, not view_rate (rounded to 1 dp for display): sizing multiplies it
 # by tens of thousands of landings, so the rounding would move the result.
-weak_pages = weak_landing_pages(landing_raw, view_item_n / total_sessions * 100, total_sessions)
+site_view_exact = view_item_n / total_sessions * 100
+# The diagnosis thresholds, stated in the page's methodology appendix.
+GAP_WEEKS, GAP_MIN_SESSIONS, GAP_SHARE = metrics.GAP_WEEKS, metrics.GAP_MIN_SESSIONS, metrics.GAP_SHARE
+SCROLL_KEPT, INSIDE_LIFT_PP = metrics.SCROLL_KEPT, metrics.INSIDE_LIFT_PP
+weak_pages = weak_landing_pages(landing_raw, site_view_exact, total_sessions)
 weak_pages["new_pct"] = weak_pages["new_sessions"] / weak_pages["sessions"] * 100
 weak_pages["unattr_pct"] = weak_pages["unattributed_sessions"] / weak_pages["sessions"] * 100
+
+# E9 — why does each page rarely show a product? Landed vs reached-from-inside
+# visitors, week by week (metrics.diagnose_landing_page): "tracking" (a dated run
+# of silent weeks while visitors behave as usual), "page" (it fails for everyone),
+# "entry traffic" (it works for visitors who reach it from inside the site).
+if len(weak_pages):
+    print("Diagnosing the weak landing pages...")
+    _diag_rows = q(queries.landing_diagnosis_sql, pages=tuple(weak_pages["landing_page"]))
+    _diag = {pg: diagnose_landing_page(_diag_rows[_diag_rows["page_path"] == pg], site_view_exact)
+             for pg in weak_pages["landing_page"]}
+else:
+    _diag = {}
+weak_pages["diagnosis"] = [_diag[pg]["verdict"] for pg in weak_pages["landing_page"]]
+weak_pages["inside_rate"] = [_diag[pg]["inside_rate"] for pg in weak_pages["landing_page"]]
+weak_pages["landed_page_rate"] = [_diag[pg]["landed_rate"] for pg in weak_pages["landing_page"]]   # on the page itself
+weak_pages["gap"] = [_diag[pg]["gap"] for pg in weak_pages["landing_page"]]
+weak_pages["landed_eng_s"] = [_diag[pg]["landed_eng_s"] for pg in weak_pages["landing_page"]]
+weak_pages["inside_eng_s"] = [_diag[pg]["inside_eng_s"] for pg in weak_pages["landing_page"]]
+weak_pages["inside_sessions"] = [_diag[pg]["inside_sessions"] for pg in weak_pages["landing_page"]]
 weak_page_rows   = weak_pages.to_dict("records")
 weak_pages_n     = len(weak_pages)
 weak_landings    = int(weak_pages["sessions"].sum())
 weak_share       = weak_landings / total_sessions * 100
-weak_extra_views = int(weak_pages["extra_views"].sum())
+# A tracking gap is a measurement problem, not lost product views: those pages are
+# shown but left out of the sizing.
+_real = weak_pages[weak_pages["diagnosis"] != "tracking"]
+tracking_pages   = weak_pages[weak_pages["diagnosis"] == "tracking"].to_dict("records")
+for _t in tracking_pages:   # the gap's weeks → dates for the text
+    _g = _t["gap"]
+    _t["gap_from"] = f"{pd.Timestamp(_g['start']):%d %b %Y}"
+    _t["gap_to"]   = f"{pd.Timestamp(_g['end']) + pd.Timedelta(days=6):%d %b %Y}"
+    _t["resumed"]  = f"{pd.Timestamp(_g['end']) + pd.Timedelta(days=7):%d %b %Y}"
+entry_pages      = weak_pages[weak_pages["diagnosis"] == "entry traffic"]
+page_fail_pages  = weak_pages[weak_pages["diagnosis"] == "page"]
+entry_pages_n, page_fail_n = len(entry_pages), len(page_fail_pages)
+real_pages_n     = len(_real)
+real_landings    = int(_real["sessions"].sum())
+entry_untagged_pct = (float(entry_pages["unattributed_sessions"].sum()) / float(entry_pages["sessions"].sum()) * 100
+                      if len(entry_pages) else 0.0)
+entry_inside_lo  = float(entry_pages["inside_rate"].min()) if len(entry_pages) else None
+entry_inside_hi  = float(entry_pages["inside_rate"].max()) if len(entry_pages) else None
+entry_landed_eng = (float((entry_pages["landed_eng_s"] * entry_pages["sessions"]).sum()) / float(entry_pages["sessions"].sum())
+                    if len(entry_pages) else None)
+entry_inside_eng = (float((entry_pages["inside_eng_s"] * entry_pages["inside_sessions"]).sum())
+                    / float(entry_pages["inside_sessions"].sum()) if len(entry_pages) else None)
+weak_extra_views = int(_real["extra_views"].sum())
 weak_lost_share  = ((weak_pages["sessions"] - weak_pages["view_item"]).sum() / total_lost_discovery * 100
                     if total_lost_discovery else 0.0)
 weak_unattr_pct  = (float(weak_pages["unattributed_sessions"].sum()) / weak_landings * 100) if weak_landings else 0.0
@@ -768,7 +817,8 @@ chart_html = {
 # know the newer verdicts and may contradict the page, so it is flagged.
 #   v3 = computed verdicts, confounders, data-quality, new vs returning, significance
 #   v4 = listing-page levels, price bands, landing pages, retention trend, page recommendations
-BRIEF_CONTEXT_VERSION = 4
+#   v5 = landing-page diagnosis (E9): tracking / page / entry traffic per weak page
+BRIEF_CONTEXT_VERSION = 5
 brief_path = HERE / "product_brief_ga4_funnel.md"
 brief_html, brief_model, brief_stale, brief_generated = "", "AI", False, None
 if brief_path.exists():
