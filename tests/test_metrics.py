@@ -228,3 +228,8 @@ def test_compare_periods_rates_changes_and_intervals():
     assert c.loc["Saw → carted", "change_pp"] == pytest.approx(0.0) and not c.loc["Saw → carted", "changed"]
     assert c.loc["Session → purchase", "ci_lo"] < c.loc["Session → purchase", "change_pp"] < c.loc["Session → purchase", "ci_hi"]
 
+
+def test_weak_landing_pages_handles_no_pages():
+    empty = pd.DataFrame({"landing_page": [], "sessions": [], "view_item": []})
+    assert weak_landing_pages(empty, 20.0, total_sessions=100).empty
+

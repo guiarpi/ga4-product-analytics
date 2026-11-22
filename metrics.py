@@ -113,7 +113,7 @@ def weak_landing_pages(pages: pd.DataFrame, site_view_pct: float, total_sessions
     page would add at the site rate."""
     total = float(total_sessions)
     d = pages[(pages["landing_page"] != "(no page_view)")
-              & ~pages["landing_page"].str.contains(NON_SHOPPING_PAGES, regex=True)].copy()
+              & ~pages["landing_page"].astype(str).str.contains(NON_SHOPPING_PAGES, regex=True)].copy()
     d["share"] = d["sessions"] / total * 100 if total else 0.0
     d["view_pct"] = d["view_item"] / d["sessions"] * 100
     d["gap_pp"] = site_view_pct - d["view_pct"]
