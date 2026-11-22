@@ -31,7 +31,7 @@ medians; a lock file of the versions behind the committed outputs.
 | E10 | Cross-session purchase paths | next | 3–4 | Medium | Low | — |
 | E11 | Geography segment (`geo.country`) | | 2–3 | Medium | Low | — |
 | E12 | Period-over-period comparison | | 4–6 | Medium | Medium | a second data window |
-| E7 | Power BI dashboard build | planned | 10–13 | Medium | High | E4 |
+| E7 | Power BI dashboard build | planned — step 1 done | 10–11 | Medium | Medium | E4, Windows |
 | E8 | Scheduled dashboard regeneration in CI | | 3–5 | Low | High | E4, E5 |
 
 ---
@@ -259,11 +259,14 @@ closes the device question formally.
 
 ### E7 · Power BI dashboard build
 
-**Status:** planned, not started. A step-by-step build guide exists but is kept out
-of the public repo until the build starts; it predates the listing-page, landing-page,
-price-band and retention-trend analyses and will be brought up to date first.
+**Status:** planned. Step 1 is done: the build guide is aligned with the current
+dashboard (kept out of the public repo until the build starts), and the data path
+exists — `powerbi_export.py` runs the dashboard's own SQL (`queries.py`) under the
+cost cap and checks that its session table reproduces the funnel before writing
+anything. Building the report needs Windows (a Windows PC or a Windows 11 for ARM VM).
 
-**Goal:** Implement the analysis as a Power BI report connected to BigQuery (Import mode).
+**Goal:** the same analysis as a Power BI report, in the dashboard's question order,
+reconciling number for number with `dashboard.html`.
 
 **Why it matters:** the same analysis in a BI tool that many product and analytics teams
 use — warehouse SQL for the sequential logic, a model at the right grain, and business
@@ -273,27 +276,28 @@ logic as DAX measures rather than pre-baked columns.
 
 | Step | What changes | Estimate |
 |---|---|---|
-| Bring the build guide up to date with the current analysis | Listing-page levels, landing pages, price bands, retention trend, recommendation sizing | 1.5 h |
-| Provision a Windows environment (VM) | External to this repo | 1 h |
-| Connect Power BI Desktop to BigQuery with extraction SQL adapted from `queries.py` | Flat, pre-computed result sets | 1.5 h |
-| Build the data model (session-grain fact, session × listing-page fact, users, weekly activity, date and helper dimensions) | — | 1 h |
-| Write DAX measures (funnel rates, channel spread and verdict, product-type average and carts at stake, censored retention) | — | 2 h |
-| Build the report pages and QA them against the notebook and `dashboard.html` | — | 3.5 h |
-| Publish screenshots and a PDF export; add a "Power BI version" section to the README | Public-sample data only | 1 h |
+| ✅ Bring the build guide up to date | Story order, data quality, new vs returning, significance, listing pages and price bands, landing diagnosis, retention trend, recommendations, Phase 5 interactions, glossary names, current QA numbers | done |
+| ✅ Data from `queries.py`, not hand-copied SQL | `pbi_*` extract builders reuse the dashboard's query text; `powerbi_export.py` (files under the cost cap, or `--sql-only` for the connector) | done |
+| Run the export | `python powerbi_export.py` (~11 GB on the public sample; needs BigQuery quota) | 0.25 h |
+| Build the model | Import the files; date, weeks-since and funnel-step tables; relationships; `_Measures` | 1 h |
+| Write the DAX measures | Funnel and continue rates, Wilson intervals, revenue and exact medians, untagged sensitivity, channel spread and verdict, listing status and carts at stake, retention with censoring, mix-adjusted trend, recommendation sizes | 2.5 h |
+| Build the pages | One per question (2–8) plus method and glossary; conclusion titles as measures | 3 h |
+| Interactions | Slicers / field parameter for segments, what-if calculator and cart recovery, % ↔ users switch, bookmarks for caveats, page navigator | 1.5 h |
+| QA against the dashboard | The guide's checklist, every figure from the same run | 1 h |
+| Publish screenshots and a PDF; README section | Public-sample data only; the `.pbix` stays out of the repo | 0.75 h |
 
-**Effort:** 10–13 h | **Impact:** Medium | **Risk:** High | **Prerequisite:** E4
+**Effort:** 10–11 h remaining | **Impact:** Medium | **Risk:** Medium | **Prerequisite:** E4, a Windows environment
 
-> ⚠️ **Architecture note:** Power BI's BigQuery connector does not support
-> `UNNEST` in DirectQuery mode — the session-funnel logic must be fully
-> pre-computed in the extraction SQL (a single flat result set), not rebuilt in
-> DAX. In the Python version the nested schema is handled in BigQuery and the
-> results reach pandas as flat tables, so the same split applies.
+> ⚠️ **Data route:** Power BI's BigQuery connector cannot cap bytes billed, and a live
+> connection would re-implement nothing but also guard nothing. The recommended route
+> imports files written by `powerbi_export.py` under the existing cap; the connector
+> route (`--sql-only`) is documented for live refreshes, with its cost stated.
 
-**Risk:** Requires a Windows environment, and the connector's authentication steps
-change between Power BI Desktop versions. Allow extra time for setup.
+**Risk:** Power BI Desktop needs Windows; on Apple silicon that means a Windows 11 for ARM
+VM running Power BI under emulation — check Microsoft's current requirements first.
 
-**Expected outcome:** a multi-page report, with screenshots and a PDF export linked
-from the README; the `.pbix` file itself stays out of the repo.
+**Expected outcome:** a multi-page report whose figures match the dashboard's, with
+screenshots and a PDF export linked from the README.
 
 ---
 
