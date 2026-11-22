@@ -168,6 +168,40 @@ To set it up on a fork: **Settings → Pages → Source: Deploy from a branch �
 `main` / `(root)`**, or
 `gh api repos/<owner>/<repo>/pages -X POST -f "source[branch]=main" -f "source[path]=/"`.
 
+### Scheduled regeneration (E8)
+
+`.github/workflows/regenerate_dashboard.yml` rebuilds the page from BigQuery every
+Monday (06:17 UTC) and on demand (**Actions → regenerate dashboard → Run workflow**).
+It installs `requirements-lock.txt`, dry-runs first (so it stops before any query
+over the cost cap), regenerates, and commits `dashboard.html` **only if it changed
+in anything but its generated date** (`ci_utils.py dashboard-changed`). On the static
+public sample a scheduled run therefore makes no commit; on a live GA4 export it keeps
+the page current.
+
+**Authentication is keyless** (Workload Identity Federation): GitHub's short-lived
+OIDC token is exchanged for a service account that can only run BigQuery jobs, and
+only for this repo's `main` branch. No key exists to store, leak or rotate.
+
+One-time setup — read the script, then run it with `gcloud` logged in as a project
+owner and `gh` logged in with admin rights on the repo:
+
+```bash
+bash ci/setup_gcp_wif.sh
+```
+
+It enables the IAM APIs, creates the `ga4-dashboard-ci` service account
+(`roles/bigquery.jobUser` only), the `github-actions` pool and its OIDC provider
+(restricted to this repo and `main`), and stores three **secrets** —
+`GA4_PROJECT_ID`, `GCP_WIF_PROVIDER`, `GCP_SERVICE_ACCOUNT`. Secrets, not
+variables: this repo's Actions logs are public, and only secrets are masked in them.
+
+**The AI brief is not regenerated in CI.** The workflow embeds the committed
+`product_brief_ga4_funnel.md`; writing a new brief stays a local step (notebook
+Section 9), checked before it is committed.
+
+**Cost:** about 17 GB per run, ~70 GB a month weekly — inside BigQuery's 1 TB monthly
+free tier, but it shares that quota with local runs.
+
 ---
 
 ## 6 · Adapting it to a new dataset

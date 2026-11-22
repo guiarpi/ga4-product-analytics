@@ -32,7 +32,7 @@ medians; a lock file of the versions behind the committed outputs.
 | E11 | Geography segment (`geo.country`) | | 2–3 | Medium | Low | — |
 | E12 | Period-over-period comparison | | 4–6 | Medium | Medium | a second data window |
 | E7 | Power BI dashboard build | planned — step 1 done | 10–11 | Medium | Medium | E4, Windows |
-| E8 | Scheduled dashboard regeneration in CI | | 3–5 | Low | High | E4, E5 |
+| E8 | Scheduled dashboard regeneration in CI | ✅ built — setup pending | 3–5 | Low | Medium | E4, E5 |
 
 ---
 
@@ -303,8 +303,13 @@ screenshots and a PDF export linked from the README.
 
 ### E8 · Scheduled dashboard regeneration in CI
 
-**Status:** not started. GitHub Actions already runs lint and the test suite on every
-push (no BigQuery, no secrets); E8 is the scheduled BigQuery run on top of that.
+**Status:** Built 2026-11-22 — `.github/workflows/regenerate_dashboard.yml` (weekly and on
+demand), keyless auth via Workload Identity Federation instead of a service-account key, a dry
+run under the cost cap before any query, and a commit only when the page changed in more than
+its generated date (`ci_utils.py`). The reviewed AI brief is now tracked and embedded as it is;
+CI never writes a brief. **Pending:** the one-time setup (`ci/setup_gcp_wif.sh`, run by the
+owner) and a first run after the BigQuery quota resets. The plan below is the original one,
+kept for the record; the key-based steps were replaced by the keyless setup.
 
 **Goal:** A GitHub Actions workflow that regenerates `dashboard.html` on a
 schedule using BigQuery credentials stored as a GitHub secret, then commits it
@@ -417,8 +422,8 @@ recorded here so it is deliberate rather than an oversight.
 
 | Decision | Reason |
 |---|---|
-| Service account key file checked into the repo | Decided to use Application Default Credentials (`gcloud auth application-default login`) for all local runs. A key file introduces unnecessary credential management risk for a personal portfolio project. The `google_creds.json` file is gitignored and will never be committed. |
-| `product_brief_ga4_funnel.md` tracked in git | Was committed initially so the dashboard would render without an API key. Reversed as part of the convention audit — it is generated output and is now gitignored. The dashboard falls back gracefully if the file is absent. |
+| Service account keys, anywhere | Local runs use Application Default Credentials (`gcloud auth application-default login`); CI uses keyless Workload Identity Federation (E8). No key file exists to commit or leak; `google_creds.json` stays gitignored. |
+| A brief regenerated automatically in CI | The scheduled build (E8) embeds the committed, reviewed `product_brief_ga4_funnel.md`; publishing unreviewed LLM text automatically was ruled out. The brief and its context are tracked for that reason (reversing an earlier decision to gitignore them). |
 | Career or application-specific content on GitHub | CV and job-application material is kept outside this repository. The repo documents the analysis only. |
 | Proprietary data as sample data | Only Google's public GA4 sample is used. No real company data is committed. |
 | Session recording or heatmap analysis | Recommended in the AI brief as a qualitative follow-on ("session recordings show why users drop"). Not implementable within this project — it requires a separate tool (Hotjar, FullStory) connected to a live site, not a BigQuery dataset. Documented as a recommended next step for a practitioner, not a project deliverable. |
