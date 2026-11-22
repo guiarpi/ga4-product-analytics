@@ -652,14 +652,19 @@ ORDER BY price_band
 """
 
 
+def _page_path_sql() -> str:
+    """The page_location path without host, query string or fragment."""
+    return (f"REGEXP_REPLACE(REGEXP_REPLACE({param('page_location', 'string')}, "
+            f"r'^https?://[^/]+', ''), r'[?#].*$', '')")
+
+
 def landing_pages_sql(dataset: str, start: str, end: str, min_sessions: int = 100) -> str:
     """Funnel by landing page: the path (no host, no query string) of the
     session's first page_view. Uses the funnel's own session table, so the
     saw-a-product rate is the funnel's step 2. Pages with fewer than
     min_sessions landings are left out; '(no page_view)' collects sessions
     without one."""
-    path = (f"REGEXP_REPLACE(REGEXP_REPLACE({param('page_location', 'string')}, "
-            f"r'^https?://[^/]+', ''), r'[?#].*$', '')")
+    path = _page_path_sql()
     return sessions_cte(dataset, start, end, attributes=True) + f""",
 landing AS (
   SELECT user_pseudo_id, session_id,
@@ -695,8 +700,7 @@ def landing_diagnosis_sql(dataset: str, start: str, end: str, pages: tuple = ("/
     visitors who reach it from inside, but not for those who land on it, points
     at the traffic; a dated run of weeks with no view_item while behaviour is
     unchanged points at the tag. `pages` are paths without host or query."""
-    path = (f"REGEXP_REPLACE(REGEXP_REPLACE({param('page_location', 'string')}, "
-            f"r'^https?://[^/]+', ''), r'[?#].*$', '')")
+    path = _page_path_sql()
     page_list = ", ".join("'" + p.replace("\\", "").replace("'", "") + "'" for p in pages)
     # One pass over the events: each session's landing page and tag, plus its
     # events on the diagnosed pages as an array (a CTE referenced several times
@@ -805,3 +809,109 @@ WHERE a.activity_week >= f.cohort_week
 GROUP BY f.cohort_week, weeks_since_cohort
 ORDER BY f.cohort_week, weeks_since_cohort
 """
+
+
+# ── Power BI extracts (E7) ─────────────────────────────────────────────────────
+# Row-level tables for the Power BI model. Each reuses the dashboard's own query
+# text up to its final SELECT (sliced at a marker, so the shared logic cannot
+# drift) or the shared session table. powerbi_export.py runs them under the cost
+# cap, or writes them out for the BigQuery connector.
+
+def _upto(sql: str, marker: str) -> str:
+    """The dashboard query's text up to (not including) `marker`; fails loudly
+    if the marker moves, rather than silently extracting the wrong part."""
+    i = sql.find(marker)
+    if i < 0:
+        raise ValueError(f"marker not found: {marker!r}")
+    return sql[:i]
+
+
+def pbi_sessions_sql(dataset: str, start: str, end: str) -> str:
+    """fct_sessions: one row per funnel session (the funnel's 354,857 on the
+    public sample) with its attributes and sequential step flags. Every rate in
+    the Power BI model is a measure over this table, so slicers cut every rate
+    the same way the dashboard's segment menu does."""
+    return sessions_cte(dataset, start, end, revenue=True, attributes=True,
+                        event_dims={"device_category": "device.category",
+                                    "first_touch_medium": "traffic_source.medium",
+                                    "country": "NULLIF(NULLIF(geo.country, ''), '(not set)')"}) + f""",
+meta AS (   -- session date and landing page, from all of the session's events
+  SELECT user_pseudo_id, {param('ga_session_id')} AS session_id,
+    PARSE_DATE('%Y%m%d', MIN(event_date)) AS session_date,
+    ARRAY_AGG(IF(event_name = 'page_view', {_page_path_sql()}, NULL) IGNORE NULLS
+              ORDER BY event_timestamp LIMIT 1)[SAFE_OFFSET(0)] AS landing_page
+  FROM {events_from(dataset, start, end)}
+  GROUP BY 1, 2
+),
+funnel AS (
+  SELECT s.*, m.session_date, m.landing_page,
+    COALESCE(s.session_medium, '(not set)') AS channel
+  FROM sessions AS s LEFT JOIN meta AS m USING (user_pseudo_id, session_id)
+  WHERE s.s1
+),
+small AS (   -- channels under 1% of sessions are pooled when there are 2+, as on the dashboard
+  SELECT channel, COUNT(*) / SUM(COUNT(*)) OVER () < 0.01 AS is_small FROM funnel GROUP BY channel
+),
+n_small AS (SELECT COUNTIF(is_small) AS n FROM small)
+SELECT
+  CONCAT(f.user_pseudo_id, '-', CAST(f.session_id AS STRING)) AS session_key,
+  f.user_pseudo_id, f.session_date,
+  f.device_category, f.channel,
+  IF(sm.is_small AND n_small.n > 1, CONCAT('other (', CAST(n_small.n AS STRING), ' small channels)'), f.channel)
+    AS channel_group,
+  COALESCE(f.first_touch_medium, '(not set)') AS first_touch_medium,
+  COALESCE(f.country, '(not set)') AS country,
+  CASE WHEN f.session_number = 1 THEN 'new' WHEN f.session_number > 1 THEN 'returning' ELSE 'unknown' END AS visitor_type,
+  COALESCE(f.landing_page, '(no page_view)') AS landing_page,
+  f.n_medium = 0 AS unattributed,
+  f.n_events,
+  f.s2 AS saw_product, f.s3 AS added_to_cart, f.s4 AS began_checkout, f.s5 AS purchased,
+  f.ts_p IS NOT NULL AS purchased_any_order,
+  IF(f.s5, IFNULL(f.revenue, 0), 0) AS revenue,
+  IF(f.s5, (f.ts_p - f.ts_s) / 60000000.0, NULL) AS minutes_to_purchase
+FROM funnel AS f JOIN small AS sm USING (channel) CROSS JOIN n_small
+ORDER BY session_key
+"""
+
+
+def pbi_session_listing_sql(dataset: str, start: str, end: str) -> str:
+    """fct_session_listing: one row per (session, listing page) the session saw
+    — category_sql's own per-session step, so rates match the dashboard."""
+    return _upto(category_sql(dataset, start, end), ",\nagg AS (") + """
+SELECT CONCAT(user_pseudo_id, '-', CAST(session_id AS STRING)) AS session_key,
+  item_category,
+  IFNULL(ts_last_cart >= ts_first_view, FALSE) AS carted_after_view
+FROM sc
+WHERE ts_first_view IS NOT NULL
+ORDER BY session_key, item_category
+"""
+
+
+def pbi_session_price_band_sql(dataset: str, start: str, end: str) -> str:
+    """fct_session_price_band: one row per (session, price band) the session saw
+    — price_band_sql's own per-session step."""
+    return _upto(price_band_sql(dataset, start, end), "\nSELECT price_band,") + """
+SELECT CONCAT(user_pseudo_id, '-', CAST(session_id AS STRING)) AS session_key,
+  price_band,
+  IFNULL(ts_last_cart >= ts_first_view, FALSE) AS carted_after_view
+FROM sb
+WHERE ts_first_view IS NOT NULL
+ORDER BY session_key, price_band
+"""
+
+
+def pbi_users_sql(dataset: str, start: str, end: str) -> str:
+    """dim_users: each user's Monday-anchored cohort week — cohort_sql's own
+    first-session step."""
+    return _upto(cohort_sql(dataset, start, end), "\nSELECT f.cohort_week,") + """
+SELECT user_pseudo_id, cohort_week FROM fs ORDER BY user_pseudo_id
+"""
+
+
+def pbi_user_activity_sql(dataset: str, start: str, end: str) -> str:
+    """fct_user_activity: one row per (user, week with a session_start) —
+    cohort_sql's own activity step."""
+    return _upto(cohort_sql(dataset, start, end), "\nSELECT f.cohort_week,") + """
+SELECT user_pseudo_id, activity_week FROM act ORDER BY user_pseudo_id, activity_week
+"""
+

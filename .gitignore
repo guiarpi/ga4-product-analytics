@@ -30,3 +30,7 @@ product_brief_context.json
 
 # Private Claude session guide
 CLAUDE.md
+
+# Power BI data and SQL written by powerbi_export.py (generated output)
+powerbi/data/
+powerbi/sql/
