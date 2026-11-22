@@ -27,7 +27,7 @@ medians; a lock file of the versions behind the committed outputs.
 | E4 | Parameterised date range and config | ✅ done | 2–3 | Medium | Low | — |
 | E5 | GitHub Pages live deployment | ✅ done | 2–3 | Medium | Low | — |
 | E6 | Statistical significance (device, channel, category) | ✅ done | 3–4 | Medium | Low | — |
-| E9 | Landing-page diagnosis: page, stock or tracking? | next | 2–3 | High | Low | — |
+| E9 | Landing-page diagnosis: page, stock or tracking? | ✅ done | 2–3 | High | Low | — |
 | E10 | Cross-session purchase paths | next | 3–4 | Medium | Low | — |
 | E11 | Geography segment (`geo.country`) | | 2–3 | Medium | Low | — |
 | E12 | Period-over-period comparison | | 4–6 | Medium | Medium | a second data window |
@@ -38,11 +38,9 @@ medians; a lock file of the versions behind the committed outputs.
 
 ## Recommended sequence
 
-**Next — close the open questions in the current findings (E9, E10)**
-Recommendation 1 rests on four landing pages that rarely show a product, but the cause is
-not yet known; E9 decides whether it is a page, stock or tracking fix before anyone builds
-anything. E10 accounts for the 2,127 purchasing sessions the sequential funnel leaves out.
-Both use the data already in hand.
+**Next — close the open questions in the current findings (E10)**
+E9 (done) diagnosed Recommendation 1's landing pages. E10 accounts for the 2,127 purchasing
+sessions the sequential funnel leaves out, with the data already in hand.
 
 **Then — widen the view (E11, E12)**
 A geography split is a cheap new segment for the existing funnel menu. Period-over-period
@@ -358,6 +356,17 @@ constant; compare the Dino Game Tee page's sessions with and without a `view_ite
 **Expected outcome:** each page labelled page, stock or tracking, and Recommendation 1's
 action and sizing updated to match.
 
+**Status:** Implemented 2026-11-21 — `queries.landing_diagnosis_sql` (one pass; visitors who land on
+a page vs those who reach it from inside, week by week) and `metrics.diagnose_landing_page` (tracking /
+page / entry traffic, with stated thresholds), notebook Section 3.4, dashboard Recommendation 1, LLM
+context v5. Result: none of the four is a stock problem. The Apparel and Drinkware listings and
+`store.html` are **entry traffic** — they show products to 25.7–35.2% of visitors who reach them from
+inside the site, but landing visitors leave at once and 62% carry no channel tag. The Dino Game Tee
+page is **tracking**: `view_item` was silent from 30 Nov 2020 to 17 Jan 2021 (0.7% of visits vs 51.6%)
+while scrolling held, and resumed on 18 Jan with behaviour unchanged. It is now left out of the
+sizing (~253 orders, $9.0k–$18.0k, down from ~316 and $11.2k–$22.5k). Open: what sends the untagged
+landing traffic — campaign or partner links without UTM tags are the first suspect.
+
 ---
 
 ### E10 · Cross-session purchase paths
@@ -414,4 +423,4 @@ recorded here so it is deliberate rather than an oversight.
 
 ---
 
-*Last updated: 2026-11-21 · Project status: active — E1–E6 done; E9 and E10 next*
+*Last updated: 2026-11-21 · Project status: active — E1–E6 and E9 done; E10 next*

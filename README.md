@@ -1,7 +1,7 @@
 # GA4 Product Funnel Analysis
 
 **Question:** only 0.77% of the Google Merchandise Store's sessions end in a purchase — where is the funnel losing people, and what should the team fix first?
-**Answer:** 79% of sessions never see a product — leaning a site problem rather than a traffic one — and four landing pages that rarely show a product are the first fix; after that, 65% of carts are abandoned before checkout.
+**Answer:** 79% of sessions never see a product — leaning a site problem rather than a traffic one — and three landing pages whose visitors leave at once are the first fix; after that, 65% of carts are abandoned before checkout.
 
 [![tests](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml/badge.svg)](https://github.com/guiarpi/ga4-product-analytics/actions/workflows/tests.yml)
 
@@ -19,7 +19,7 @@ From 354,857 sessions in the [public obfuscated GA4 sample](https://console.clou
 
 - **Discovery is the largest loss.** Only 21.2% of sessions see any product; 279,596 sessions (78.8%) leave without seeing one. Session-to-purchase conversion is 0.77%.
 - **Leaning site, not traffic — but borderline.** Every channel loses at least 70% of its sessions before a product. Product reach runs from 21.6% (cpc) to 30.3% (referral), an 8.7pp spread against a 10pp decision threshold.
-- **Four landing pages are the concrete target.** They take 76,426 landings (22% of sessions) and show a product to 8.9–11.8% of them, against 21.2% site-wide. At the site rate they would add ~316 orders, **$11.2k–$22.5k** over the window. Whether the cause is the page, stock or tracking is not yet known.
+- **Three landing pages are the concrete target — and a fourth was a tracking gap.** Four pages take 76,426 landings (22% of sessions) and show a product to 8.9–11.8% of them, against 21.2% site-wide. Diagnosed week by week: the Apparel and Drinkware listings and `store.html` work for visitors who reach them from inside the site (25.7–35.2% see a product), but landing visitors leave at once and 62% of them carry no channel tag — the gap is in who lands there. On the Dino Game Tee page, `view_item` was silent from 30 Nov to 17 Jan while visitors behaved as usual: a measurement gap, not lost views. Bringing the three real pages to the site rate is worth ~253 orders, **$9.0k–$18.0k** over the window.
 - **Most carts are abandoned.** 65% of carting sessions (9,665 of 14,870) never begin checkout — the largest loss once a shopper has shown purchase intent.
 - **Six product-type listing pages cart below average.** Against a 22.1% product-type average, 6 of 12 sit below with 95% confidence; Bags, Women's and Men's / Unisex hold 1,054 of the 1,635 carts at stake. Price is a confounder: items at $10–20 are carted at 12.2%, items at $30–50 at 6.3%.
 - **Return visits fell in December, in every channel.** Next-week return averages 4.2%, from 5.0–6.7% for November cohorts to 2.4–3.3% for December. A change in channel mix explains only 7% of the fall, so the likelier reading is seasonal, not lower-intent traffic.
@@ -36,7 +36,7 @@ The notebook, the dashboard and this README share one numbering: one question pe
 |---|---|---|
 | 1 | **Setup and data** | Config, date range, event inventory |
 | 2 | **Data quality — read before the numbers** | What untagged sessions are (short, not bots); `view_item` as a list impression; why `session_start` events (354,970) exceed sessions (354,857): 113 repeated starts in 105 sessions |
-| 3 | **Where does the funnel leak?** | The sequential session funnel, revenue, landing pages, time to convert |
+| 3 | **Where does the funnel leak?** | The sequential session funnel, revenue, landing pages with a page / tracking / entry-traffic diagnosis, time to convert |
 | 4 | **Is it the traffic?** | The funnel by the session's own channel, with a chi-square test and Cramér's V |
 | 5 | **Is it the device?** | The funnel by device, with Wilson intervals and a chi-square test |
 | 6 | **Where in the catalogue?** | Shoppers funnel; seen → carted by product-type listing page (flagged only when the whole 95% interval is below average); price bands |
@@ -140,7 +140,7 @@ export GA4_DATE_START="20240101"   # YYYYMMDD, inclusive
 export GA4_DATE_END="20240331"
 ```
 
-Every query runs under a cost cap of 5 GB billed per query: BigQuery refuses, without charging, any query that would bill more. On the public sample the largest query scans about 1.6 GB, and a full dashboard run about 15.5 GB. A larger export may need a higher cap, and you can see what a run would scan before running it:
+Every query runs under a cost cap of 5 GB billed per query: BigQuery refuses, without charging, any query that would bill more. On the public sample the largest query scans about 1.6 GB, and a full dashboard run about 17 GB. A larger export may need a higher cap, and you can see what a run would scan before running it:
 
 ```bash
 python generate_dashboard.py --dry-run     # free estimate per query; runs nothing

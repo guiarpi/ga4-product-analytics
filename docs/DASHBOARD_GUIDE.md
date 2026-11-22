@@ -44,7 +44,7 @@ export GA4_PROJECT_ID="your-gcp-project"   # or: gcloud config set project …
 
 ### Cost control
 
-A full run executes 15 queries and scans about 15.5 GB on the public sample —
+A full run executes 16 queries and scans about 17 GB on the public sample —
 well inside BigQuery's 1 TB monthly free tier.
 
 - Every query is partition-pruned (`_TABLE_SUFFIX BETWEEN`) — the biggest cost
