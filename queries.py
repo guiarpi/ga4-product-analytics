@@ -303,6 +303,71 @@ FROM (
 """
 
 
+def _user_sessions_cte(dataset: str, start: str, end: str) -> str:
+    """The funnel's session table, ordered within each user: rn (1 = first
+    session in the window), t0 (the session's first funnel timestamp), the last
+    earlier cart, and the window's last timestamp (for censoring)."""
+    return sessions_cte(dataset, start, end, revenue=True) + """,
+ordered AS (
+  SELECT *,
+    COALESCE(ts_s, ts_v, ts_c, ts_k, ts_p) AS t0,
+    ROW_NUMBER() OVER (PARTITION BY user_pseudo_id
+                       ORDER BY COALESCE(ts_s, ts_v, ts_c, ts_k, ts_p), session_id) AS rn
+  FROM sessions
+),
+user_sessions AS (
+  SELECT *,
+    MAX(ts_c) OVER w_before AS prev_cart_ts,
+    MAX(IF(ts_c IS NOT NULL, rn, NULL)) OVER w_before AS prev_cart_rn,
+    MIN(ts_p) OVER w_after AS next_purchase_ts,
+    MAX(t0) OVER () AS window_end_ts
+  FROM ordered
+  WINDOW w_before AS (PARTITION BY user_pseudo_id ORDER BY rn ROWS BETWEEN UNBOUNDED PRECEDING AND 1 PRECEDING),
+         w_after  AS (PARTITION BY user_pseudo_id ORDER BY rn ROWS BETWEEN 1 FOLLOWING AND UNBOUNDED FOLLOWING)
+)"""
+
+
+def purchase_paths_sql(dataset: str, start: str, end: str) -> str:
+    """One row per purchasing session, with the path that led to it (E10):
+    sequential in one session (the funnel's purchases); carted in the session
+    but out of order; carted in an EARLIER session of the same user (a
+    cross-session purchase — the funnel cannot count it); or no cart seen in
+    the window (carted before the window, on another device or cookie, or
+    never). For cross-session purchases, the hours and sessions since the last
+    earlier cart. "Cart" = an add_to_cart event, as in the funnel."""
+    return _user_sessions_cte(dataset, start, end) + """
+SELECT
+  CASE WHEN s5 THEN 'sequential, in one session'
+       WHEN ts_c IS NOT NULL THEN 'carted in the session, out of order'
+       WHEN prev_cart_ts IS NOT NULL THEN 'carted in an earlier session'
+       ELSE 'no cart seen in the window' END AS path,
+  IFNULL(revenue, 0) AS revenue,
+  rn AS session_number_in_window,
+  IF(ts_c IS NULL AND prev_cart_ts IS NOT NULL, (ts_p - prev_cart_ts) / 3.6e9, NULL) AS hours_since_cart,
+  IF(ts_c IS NULL AND prev_cart_ts IS NOT NULL, rn - prev_cart_rn, NULL) AS sessions_since_cart
+FROM user_sessions
+WHERE ts_p IS NOT NULL
+ORDER BY path, hours_since_cart, session_number_in_window, revenue
+"""
+
+
+def cart_recovery_sql(dataset: str, start: str, end: str) -> str:
+    """One row per carting session WITHOUT a purchase in it (E10): did the same
+    user buy in a later session, and how soon? hours_left is the time from the
+    cart to the end of the window — a cart can only count as "not recovered
+    within N days" if N days were observable after it. reached_checkout splits
+    carts abandoned before checkout from those abandoned inside it."""
+    return _user_sessions_cte(dataset, start, end) + """
+SELECT
+  ts_k IS NOT NULL AS reached_checkout,
+  (next_purchase_ts - ts_c) / 3.6e9 AS hours_to_next_purchase,
+  (window_end_ts - ts_c) / 3.6e9 AS hours_left
+FROM user_sessions
+WHERE ts_c IS NOT NULL AND ts_p IS NULL
+ORDER BY reached_checkout, hours_to_next_purchase, hours_left
+"""
+
+
 # ── Named funnels ─────────────────────────────────────────────────────────────
 
 def session_funnel_sql(dataset: str, start: str, end: str) -> str:

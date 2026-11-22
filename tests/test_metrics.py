@@ -159,3 +159,36 @@ def test_a_steady_decline_is_not_a_gap():
     d = diagnose_landing_page(rows, 21.0)
     assert d["gap"] is None and d["verdict"] == "entry traffic"
 
+
+# ── E10: purchase paths and cart recovery ─────────────────────────────────────
+from metrics import purchase_path_summary, recovery_curve, PATH_ORDER
+
+
+def test_purchase_path_summary_shares_revenue_and_exact_medians():
+    paths = pd.DataFrame({
+        "path": ["sequential, in one session"] * 2 + ["carted in an earlier session"] * 3 + ["no cart seen in the window"],
+        "revenue": [10.0, 20.0, 5.0, 5.0, 0.0, 7.0],
+        "hours_since_cart": [None, None, 2.0, 30.0, 100.0, None],
+        "sessions_since_cart": [None, None, 1, 1, 4, None],
+    })
+    s = purchase_path_summary(paths)
+    assert list(s.index) == list(PATH_ORDER)
+    assert s.loc["carted in an earlier session", "sessions"] == 3
+    assert s.loc["carted in an earlier session", "share_pct"] == 50.0
+    assert s.loc["carted in an earlier session", "median_hours_since_cart"] == 30.0   # exact, not approximate
+    assert s.loc["carted in the session, out of order", "sessions"] == 0               # missing path → 0 row
+    assert s["revenue"].sum() == 47.0
+
+
+def test_recovery_curve_excludes_carts_without_enough_time_left():
+    carts = pd.DataFrame({
+        "reached_checkout":       [False, False, True, False],
+        "hours_to_next_purchase": [5.0,   None,  100.0, None],
+        "hours_left":             [400.0, 400.0, 400.0, 30.0],   # the last cart has < 7 days left
+    })
+    c = recovery_curve(carts, days=(1, 7))
+    one, seven = c.iloc[0], c.iloc[1]
+    assert (one["eligible_carts"], one["recovered"]) == (4, 1)          # 30h left still covers 1 day
+    assert (seven["eligible_carts"], seven["recovered"]) == (3, 2)      # the censored cart is left out
+    assert recovery_curve(carts, days=(7,), checkout=True).iloc[0]["recovered"] == 1
+    assert seven["ci_lo"] < seven["recovered_pct"] < seven["ci_hi"]

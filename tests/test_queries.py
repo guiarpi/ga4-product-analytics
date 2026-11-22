@@ -114,6 +114,8 @@ def test_multi_row_results_have_a_total_order():
         "price_band_sql":      "ORDER BY price_band",
         "landing_pages_sql":   "ORDER BY sessions DESC, landing_page",
         "category_overlap_sql": "ORDER BY sightings DESC, item_name",
+        "purchase_paths_sql":  "ORDER BY path, hours_since_cart, session_number_in_window, revenue",
+        "cart_recovery_sql":   "ORDER BY reached_checkout, hours_to_next_purchase, hours_left",
     }
     sqls = all_query_sql()
     for name, clause in expected.items():
@@ -142,4 +144,11 @@ def test_landing_diagnosis_quotes_and_limits_its_pages():
     assert "IN ('/a', '/bc')" in sql                 # a quote cannot break out of the list
     assert "IF(landing_page = page_path, 'landed', 'inside')" in sql
     assert sql.count("FROM `proj.dataset_x.events_*`") == 1     # one pass over the events
+
+
+def test_cross_session_queries_use_the_funnel_session_table():
+    for sql in (queries.purchase_paths_sql(*W), queries.cart_recovery_sql(*W)):
+        assert "sessions AS (" in sql and "ROWS BETWEEN" in sql
+    assert "WHERE ts_p IS NOT NULL" in queries.purchase_paths_sql(*W)
+    assert "WHERE ts_c IS NOT NULL AND ts_p IS NULL" in queries.cart_recovery_sql(*W)
 

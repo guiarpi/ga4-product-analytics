@@ -15,6 +15,8 @@ generate_dashboard.py, kept here so they can be unit-tested (tests/).
   from a change in segment mix, and how much from within the segments.
 - diagnose_landing_page: tracking, page or entry traffic, from the weekly
   landing_diagnosis_sql rows of one page.
+- purchase_path_summary, recovery_curve: cross-session purchase paths and how
+  often abandoned carts come back in a later session (E10).
 """
 
 import pandas as pd
@@ -212,3 +214,41 @@ def diagnose_landing_page(rows: pd.DataFrame, site_view_pct: float) -> dict:
         out["verdict"] = "unclear"
     return out
 
+
+# ── Cross-session paths (E10) ─────────────────────────────────────────────────
+PATH_ORDER = ("sequential, in one session", "carted in the session, out of order",
+              "carted in an earlier session", "no cart seen in the window")
+
+
+def purchase_path_summary(paths: pd.DataFrame) -> pd.DataFrame:
+    """purchase_paths_sql rows → one row per path: purchasing sessions, share,
+    revenue, and for cross-session purchases the exact median hours and
+    sessions since the last earlier cart. Paths in PATH_ORDER."""
+    total = len(paths)
+    g = paths.groupby("path")
+    out = pd.DataFrame({"sessions": g.size(), "revenue": g["revenue"].sum()}).reindex(list(PATH_ORDER)).fillna(0)
+    out["sessions"] = out["sessions"].astype(int)
+    out["share_pct"] = out["sessions"] / total * 100 if total else 0.0
+    out["median_hours_since_cart"] = g["hours_since_cart"].median().reindex(out.index)
+    out["median_sessions_since_cart"] = g["sessions_since_cart"].median().reindex(out.index)
+    return out
+
+
+def recovery_curve(carts: pd.DataFrame, days=(1, 7, 14), checkout=None) -> pd.DataFrame:
+    """Share of abandoned carts (cart_recovery_sql rows) whose user bought in a
+    later session within N days. Right-censoring: for each N only carts with at
+    least N days left in the window count, so late carts cannot look
+    unrecovered for lack of time. checkout=True/False keeps only carts that
+    did / did not reach checkout. Wilson 95% interval on each rate."""
+    from stats_utils import wilson_ci
+    d = carts if checkout is None else carts[carts["reached_checkout"] == checkout]
+    rows = []
+    for n in days:
+        h = n * 24
+        eligible = d[d["hours_left"] >= h]
+        k = int((eligible["hours_to_next_purchase"] <= h).sum())
+        m = len(eligible)
+        lo, hi = wilson_ci(k, m) if m else (float("nan"), float("nan"))
+        rows.append({"days": n, "eligible_carts": m, "recovered": k,
+                     "recovered_pct": k / m * 100 if m else float("nan"), "ci_lo": lo, "ci_hi": hi})
+    return pd.DataFrame(rows)
