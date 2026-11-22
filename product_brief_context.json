@@ -1,0 +1,659 @@
+{
+  "generated": "2026-11-22T14:12:57",
+  "model": "Gemini (gemini-3.5-flash)",
+  "context_version": 5,
+  "system_prompt": "You are a senior Product Analyst embedded in a cross-functional product squad.\nYour job is to turn computed funnel results into a clear, decision-ready product brief.\n\nProduce exactly these five sections, in this markdown format:\n\n## Executive Summary\n2-3 sentences: the most important finding and its business implication.\n\n## Key Findings\n3-5 numbered findings. Each: a bold title and the specific numbers, then one sub-bullet\n\"   - **So what:** ...\" that a product manager can act on.\n\n## Hypotheses\n3 numbered hypotheses, each titled \"**[HIGH | MEDIUM | LOW] confidence — <claim>**\", with sub-bullets:\n   - **Evidence:** the numbers from the data that support it\n   - **Confounder:** what else could produce the same pattern (use known_confounders)\n\n## Recommended Actions\n3 numbered actions, each with sub-bullets **What:**, **Why:** and **Metric:**. Give a target only\nif the data provides one, and label it a planning assumption.\n\n## What to Measure Next\n2-3 analyses that would confirm or refute the hypotheses.\n\nHard rules — a brief that breaks one is rejected:\n1. computed_verdicts are final. Every sentence must be consistent with them. Never contradict a\n   verdict, reverse it, or re-derive it differently — for example, do not attribute the\n   discovery loss to traffic quality when the channel verdict says the leak is on the site.\n2. Use only numbers present in the data and copy them exactly, including how many items a figure\n   covers: if the data names three categories with N carts at stake, write three and N. Do not\n   compute new totals: never add, average or combine figures into one that is not in the data —\n   in particular, never sum the revenue ranges of different recommendations.\n3. State a confounder for every hypothesis. A hypothesis whose main confounder the data does not\n   rule out cannot be HIGH confidence.\n4. Use each metric only for what its definition says. view_item is a list-level event in this\n   export: write \"saw products\", never \"product page\" or \"PDP\", and make no claim about product\n   detail pages.\n5. Comparisons are internal: say \"site average\", never \"benchmark\". Targets in the data are\n   planning assumptions — say so. Never invent industry benchmarks.\n6. Do not call a step healthy, efficient, lean or strong unless the data compares it with something.\n7. Respect data-quality flags: never base a finding or an action on a low-volume metric;\n   '(not set)' is a tagging gap, not a channel or traffic source; a statistically significant\n   difference is not automatically a large one.\n8. Fast conversion times and low return rates do not reveal buyer motivation; do not claim it.\n9. Write for a product manager: opinionated, plain language, no statistical jargon beyond\n   \"significant\" and \"confidence interval\".\n10. State that the data is an obfuscated public sample and the findings need validation on real data.\n11. Where useful, give the B2B SaaS equivalent (session_start → login, view_item → feature\n    discovery, purchase → activation).\n12. Keep each verdict's level of certainty. A verdict described as borderline, leaning or\n    \"the leading explanation\" stays that way: never write that the data \"confirms\", \"proves\"\n    or \"shows\" it. Hedges in computed_verdicts are part of the verdict. Where the data says a\n    cause is not known, list the possible causes and do not pick one: a page with a low\n    saw-a-product rate is \"underperforming\", never \"broken\" or \"failing to render\".\n13. Round to the precision a reader needs: whole dollars or $k for money (e.g. $2.6k–$12.0k,\n    never cents on an estimate), one decimal for percentages and percentage points. Label as\n    a planning assumption only the input that is one (e.g. the 8% target), not the estimate\n    derived from it.",
+  "user_prompt": "Produce a product brief from these funnel analysis results.\n\nDataset: GA4 public e-commerce sample (Nov 2020 – Jan 2021, session-scoped funnel).\nThe methodology is directly transferable to B2B SaaS — where \"purchase\" maps to\na key activation event such as completing onboarding or adopting a core feature.\n\nThese analyses have ALREADY been done and their results are in the data below: the\nacquisition-channel split (funnel_by_channel), the product-category split with confidence\nintervals and prices (category_view_to_cart), price bands (price_bands), landing pages\n(landing_pages), the retention trend (retention_trend), new vs returning sessions\n(new_vs_returning), significance tests (significance) and data-quality checks (data_quality).\nInterpret them; do not recommend running any of them as a next step. Size actions only with the\nfigures in page_recommendations.\n\nStart from computed_verdicts — they are final — and use known_confounders for the Confounder lines.\n\n{\n  \"session_funnel\": [\n    {\n      \"step\": \"1. Session Start\",\n      \"sessions\": 354857,\n      \"step_conversion_pct\": null,\n      \"overall_conversion_pct\": 100.0,\n      \"drop_off_pct\": null\n    },\n    {\n      \"step\": \"2. View Products\",\n      \"sessions\": 75261,\n      \"step_conversion_pct\": 21.2,\n      \"overall_conversion_pct\": 21.2,\n      \"drop_off_pct\": 78.8\n    },\n    {\n      \"step\": \"3. Add to Cart\",\n      \"sessions\": 14870,\n      \"step_conversion_pct\": 19.8,\n      \"overall_conversion_pct\": 4.2,\n      \"drop_off_pct\": 80.2\n    },\n    {\n      \"step\": \"4. Begin Checkout\",\n      \"sessions\": 5205,\n      \"step_conversion_pct\": 35.0,\n      \"overall_conversion_pct\": 1.5,\n      \"drop_off_pct\": 65.0\n    },\n    {\n      \"step\": \"5. Purchase\",\n      \"sessions\": 2721,\n      \"step_conversion_pct\": 52.3,\n      \"overall_conversion_pct\": 0.8,\n      \"drop_off_pct\": 47.7\n    }\n  ],\n  \"revenue\": {\n    \"funnel_purchases\": 2721,\n    \"orders_with_revenue_recorded\": 2461,\n    \"total_revenue_usd\": 193678.0,\n    \"avg_order_value_usd\": 78.7,\n    \"revenue_per_funnel_purchase_usd\": 71.18,\n    \"median_order_value_usd\": 55.0,\n    \"all_purchasing_sessions_incl_non_sequential\": 4848,\n    \"all_recorded_revenue_usd\": 362165.0,\n    \"purchasing_sessions_outside_sequential_funnel\": 2127,\n    \"purchasing_sessions_without_add_to_cart_in_session\": 2000,\n    \"note\": \"AOV averages only orders with revenue recorded; use revenue_per_funnel_purchase for sizing. Funnel revenue covers sequential sessions only \\u2014 most other purchasing sessions have no add_to_cart in the same session (cart filled in an earlier visit).\"\n  },\n  \"purchase_rate_by_device\": [\n    {\n      \"device\": \"desktop\",\n      \"sessions\": 1537,\n      \"pct_of_device_sessions\": 0.75\n    },\n    {\n      \"device\": \"mobile\",\n      \"sessions\": 1123,\n      \"pct_of_device_sessions\": 0.8\n    },\n    {\n      \"device\": \"tablet\",\n      \"sessions\": 61,\n      \"pct_of_device_sessions\": 0.77\n    }\n  ],\n  \"median_minutes_between_steps_converters_only\": {\n    \"session_to_view_products\": 1.0,\n    \"view_products_to_add_to_cart\": 0.3,\n    \"add_to_cart_to_checkout\": 6.7,\n    \"checkout_to_purchase\": 3.3,\n    \"total_session_to_purchase\": 15.7,\n    \"carting_sessions_with_identical_view_and_cart_timestamp_pct\": 14.9,\n    \"note\": \"Describes converting sessions only \\u2014 says nothing about why carts are abandoned. Identical view/cart timestamps are a tracking signal (listing quick-add), not evidence that shoppers are decisive.\"\n  },\n  \"shoppers_funnel\": {\n    \"note\": \"Funnel starting at view_item \\u2014 removes sessions that never saw a product. Both rates share a numerator; their ratio only restates the discovery loss and says nothing about product presentation.\",\n    \"add_to_cart_rate_from_all_sessions_pct\": 4.2,\n    \"add_to_cart_rate_from_product_viewers_pct\": 19.7\n  },\n  \"cohort_retention\": {\n    \"avg_week1_return_pct\": 4.23,\n    \"avg_week2_return_pct\": 1.89,\n    \"definition\": \"Week-1 return = share of a weekly cohort with any session in the next Monday-anchored calendar week (a 1-13 day window) \\u2014 not D7 retention.\",\n    \"planning_target_pct\": 8.0,\n    \"planning_target_note\": \"an analyst assumption, not an external benchmark\",\n    \"note\": \"% of users with any session in week N after their acquisition week; full cohorts only, right-censored weeks excluded. Measures return visits, not purchases: it cannot show whether buyers decided in one session or researched across sessions (cross-device and cleared cookies also look like non-returns).\"\n  },\n  \"funnel_by_channel\": {\n    \"channel_definition\": \"session_medium\",\n    \"view_item_spread_pp\": 8.71,\n    \"decision_rule\": \"10pp spread in view_item_pct = traffic-quality problem; 7-10pp = borderline; below 7pp = site problem. The 10pp threshold is an analyst-set assumption.\",\n    \"verdict\": \"borderline \\u2014 leaning 'the leak is on the site', but close to the threshold; review cpc landing pages before a navigation redesign\",\n    \"note\": \"low_purchase_volume=True means fewer than 30 purchases: purchase_pct and revenue_per_session are too noisy to rank or act on. view_item_pct rests on session counts and is reliable. '(not set)' sessions carry no session-level medium and are excluded from the spread; they are short sessions missing the tag, not a channel (see data_quality). '(none)' = direct traffic.\",\n    \"rows\": [\n      {\n        \"channel\": \"organic\",\n        \"sessions\": 102788,\n        \"view_item_pct\": 26.32,\n        \"purchase_pct\": 0.9,\n        \"revenue_per_session_usd\": 0.58,\n        \"low_purchase_volume\": false\n      },\n      {\n        \"channel\": \"(not set)\",\n        \"sessions\": 92892,\n        \"view_item_pct\": 6.68,\n        \"purchase_pct\": 0.0,\n        \"revenue_per_session_usd\": 0.0,\n        \"low_purchase_volume\": true\n      },\n      {\n        \"channel\": \"referral\",\n        \"sessions\": 80725,\n        \"view_item_pct\": 30.28,\n        \"purchase_pct\": 1.72,\n        \"revenue_per_session_usd\": 1.28,\n        \"low_purchase_volume\": false\n      },\n      {\n        \"channel\": \"(none)\",\n        \"sessions\": 37670,\n        \"view_item_pct\": 22.68,\n        \"purchase_pct\": 0.48,\n        \"revenue_per_session_usd\": 0.38,\n        \"low_purchase_volume\": false\n      },\n      {\n        \"channel\": \"<Other>\",\n        \"sessions\": 25302,\n        \"view_item_pct\": 22.16,\n        \"purchase_pct\": 0.26,\n        \"revenue_per_session_usd\": 0.21,\n        \"low_purchase_volume\": false\n      },\n      {\n        \"channel\": \"cpc\",\n        \"sessions\": 7664,\n        \"view_item_pct\": 21.57,\n        \"purchase_pct\": 0.37,\n        \"revenue_per_session_usd\": 0.26,\n        \"low_purchase_volume\": true\n      },\n      {\n        \"channel\": \"(data deleted)\",\n        \"sessions\": 6315,\n        \"view_item_pct\": 23.04,\n        \"purchase_pct\": 1.73,\n        \"revenue_per_session_usd\": 1.12,\n        \"low_purchase_volume\": false\n      },\n      {\n        \"channel\": \"other (2 small channels)\",\n        \"sessions\": 1501,\n        \"view_item_pct\": 19.92,\n        \"purchase_pct\": 1.33,\n        \"revenue_per_session_usd\": 1.17,\n        \"low_purchase_volume\": true\n      }\n    ]\n  },\n  \"category_view_to_cart\": {\n    \"what_a_row_is\": \"A listing page a product was shown in, not a product category: 414 of 420 products appear under more than one item_category. Only product-type pages are ranked; brand, collection and parent pages mix product types and are listed separately in other_pages, unranked.\",\n    \"product_type_average_pct\": 22.06,\n    \"metric_definition\": \"seen_to_carted_pct = of sessions in which a product from this listing page appeared in a viewed product list (view_item is list-level in this export), the % that then carted an item from it (the carted item only, quantity > 0). It is evidence about how products convert from listings, not about product detail pages.\",\n    \"note\": \"carts_at_stake = extra carting sessions if the page converted at the product-type average (pooled rate across ranked product-type pages \\u2014 internal, not an external benchmark). Counted only for pages whose whole 95% interval is below the average (vs_average='below'); 'neutral' pages cannot be distinguished from average and must not be called underperforming. About one flag in 20 may be chance.\",\n    \"other_pages\": [\n      {\n        \"page\": \"YouTube\",\n        \"level\": \"brand\",\n        \"viewing_sessions\": 4754,\n        \"seen_to_carted_pct\": 15.59\n      },\n      {\n        \"page\": \"Google\",\n        \"level\": \"brand\",\n        \"viewing_sessions\": 3234,\n        \"seen_to_carted_pct\": 12.99\n      },\n      {\n        \"page\": \"Android\",\n        \"level\": \"brand\",\n        \"viewing_sessions\": 874,\n        \"seen_to_carted_pct\": 17.73\n      },\n      {\n        \"page\": \"Sale\",\n        \"level\": \"collection\",\n        \"viewing_sessions\": 9763,\n        \"seen_to_carted_pct\": 16.99\n      },\n      {\n        \"page\": \"New\",\n        \"level\": \"collection\",\n        \"viewing_sessions\": 5335,\n        \"seen_to_carted_pct\": 16.66\n      },\n      {\n        \"page\": \"Eco-Friendly\",\n        \"level\": \"collection\",\n        \"viewing_sessions\": 3725,\n        \"seen_to_carted_pct\": 13.29\n      },\n      {\n        \"page\": \"Campus Collection\",\n        \"level\": \"collection\",\n        \"viewing_sessions\": 3142,\n        \"seen_to_carted_pct\": 22.15\n      },\n      {\n        \"page\": \"Apparel\",\n        \"level\": \"parent\",\n        \"viewing_sessions\": 6548,\n        \"seen_to_carted_pct\": 14.05\n      },\n      {\n        \"page\": \"Lifestyle\",\n        \"level\": \"parent\",\n        \"viewing_sessions\": 2755,\n        \"seen_to_carted_pct\": 14.08\n      },\n      {\n        \"page\": \"Stationery\",\n        \"level\": \"parent\",\n        \"viewing_sessions\": 2237,\n        \"seen_to_carted_pct\": 22.93\n      },\n      {\n        \"page\": \"Shop by Brand\",\n        \"level\": \"parent\",\n        \"viewing_sessions\": 798,\n        \"seen_to_carted_pct\": 15.41\n      }\n    ],\n    \"rows\": [\n      {\n        \"category\": \"Bags\",\n        \"viewing_sessions\": 4796,\n        \"seen_to_carted_pct\": 13.64,\n        \"ci95_pct\": [\n          12.69,\n          14.64\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 12.0,\n        \"carts_at_stake\": 404\n      },\n      {\n        \"category\": \"Women's\",\n        \"viewing_sessions\": 4778,\n        \"seen_to_carted_pct\": 15.09,\n        \"ci95_pct\": [\n          14.1,\n          16.13\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 29.0,\n        \"carts_at_stake\": 333\n      },\n      {\n        \"category\": \"Men's / Unisex\",\n        \"viewing_sessions\": 13672,\n        \"seen_to_carted_pct\": 19.74,\n        \"ci95_pct\": [\n          19.08,\n          20.42\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 37.0,\n        \"carts_at_stake\": 317\n      },\n      {\n        \"category\": \"Small Goods\",\n        \"viewing_sessions\": 3951,\n        \"seen_to_carted_pct\": 15.49,\n        \"ci95_pct\": [\n          14.4,\n          16.65\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 10.0,\n        \"carts_at_stake\": 259\n      },\n      {\n        \"category\": \"Drinkware\",\n        \"viewing_sessions\": 5382,\n        \"seen_to_carted_pct\": 18.45,\n        \"ci95_pct\": [\n          17.44,\n          19.51\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 24.0,\n        \"carts_at_stake\": 194\n      },\n      {\n        \"category\": \"Men's T-Shirts\",\n        \"viewing_sessions\": 1810,\n        \"seen_to_carted_pct\": 14.97,\n        \"ci95_pct\": [\n          13.4,\n          16.69\n        ],\n        \"vs_average\": \"below\",\n        \"median_listed_price_usd\": 25.0,\n        \"carts_at_stake\": 128\n      },\n      {\n        \"category\": \"Kids\",\n        \"viewing_sessions\": 2966,\n        \"seen_to_carted_pct\": 21.24,\n        \"ci95_pct\": [\n          19.81,\n          22.75\n        ],\n        \"vs_average\": \"neutral\",\n        \"median_listed_price_usd\": 24.0,\n        \"carts_at_stake\": 0\n      },\n      {\n        \"category\": \"Notebooks\",\n        \"viewing_sessions\": 2010,\n        \"seen_to_carted_pct\": 27.26,\n        \"ci95_pct\": [\n          25.36,\n          29.25\n        ],\n        \"vs_average\": \"above\",\n        \"median_listed_price_usd\": 13.0,\n        \"carts_at_stake\": 0\n      },\n      {\n        \"category\": \"Socks\",\n        \"viewing_sessions\": 1018,\n        \"seen_to_carted_pct\": 30.35,\n        \"ci95_pct\": [\n          27.61,\n          33.25\n        ],\n        \"vs_average\": \"above\",\n        \"median_listed_price_usd\": 17.0,\n        \"carts_at_stake\": 0\n      },\n      {\n        \"category\": \"Stickers\",\n        \"viewing_sessions\": 1583,\n        \"seen_to_carted_pct\": 32.34,\n        \"ci95_pct\": [\n          30.08,\n          34.69\n        ],\n        \"vs_average\": \"above\",\n        \"median_listed_price_usd\": 3.0,\n        \"carts_at_stake\": 0\n      },\n      {\n        \"category\": \"Writing\",\n        \"viewing_sessions\": 976,\n        \"seen_to_carted_pct\": 37.91,\n        \"ci95_pct\": [\n          34.92,\n          41.0\n        ],\n        \"vs_average\": \"above\",\n        \"median_listed_price_usd\": 3.0,\n        \"carts_at_stake\": 0\n      },\n      {\n        \"category\": \"Hats\",\n        \"viewing_sessions\": 6226,\n        \"seen_to_carted_pct\": 40.57,\n        \"ci95_pct\": [\n          39.36,\n          41.8\n        ],\n        \"vs_average\": \"above\",\n        \"median_listed_price_usd\": 17.0,\n        \"carts_at_stake\": 0\n      }\n    ]\n  },\n  \"price_bands\": {\n    \"note\": \"seen_to_carted_pct by the item's own price, same rule as the listing pages. A session sees items in several bands, so bands are not additive.\",\n    \"chi_square_p\": \"p < 0.001\",\n    \"rows\": [\n      {\n        \"band\": \"under $10\",\n        \"viewing_sessions\": 37919,\n        \"seen_to_carted_pct\": 8.9\n      },\n      {\n        \"band\": \"$10\\u201320\",\n        \"viewing_sessions\": 48487,\n        \"seen_to_carted_pct\": 12.15\n      },\n      {\n        \"band\": \"$20\\u201330\",\n        \"viewing_sessions\": 55218,\n        \"seen_to_carted_pct\": 7.99\n      },\n      {\n        \"band\": \"$30\\u201350\",\n        \"viewing_sessions\": 44177,\n        \"seen_to_carted_pct\": 6.32\n      },\n      {\n        \"band\": \"$50+\",\n        \"viewing_sessions\": 39694,\n        \"seen_to_carted_pct\": 6.83\n      }\n    ]\n  },\n  \"landing_pages\": {\n    \"rule\": \"pages with at least 1% of sessions as landings and a saw-a-product rate at least 5pp under the site's 21.2%\",\n    \"pages\": [\n      {\n        \"landing_page\": \"/Google+Redesign/Apparel\",\n        \"landings\": 39092,\n        \"saw_product_pct\": 8.87,\n        \"saw_product_when_reached_from_inside_pct\": 28.13,\n        \"first_visit_pct\": 92.86,\n        \"no_channel_tag_pct\": 59.73,\n        \"diagnosis\": \"entry traffic\"\n      },\n      {\n        \"landing_page\": \"/Google+Redesign/Apparel/Google+Dino+Game+Tee\",\n        \"landings\": 18430,\n        \"saw_product_pct\": 11.84,\n        \"saw_product_when_reached_from_inside_pct\": 29.3,\n        \"first_visit_pct\": 96.51,\n        \"no_channel_tag_pct\": 2.19,\n        \"diagnosis\": \"tracking\",\n        \"tracking_gap\": \"view_item silent 30 Nov 2020 to 17 Jan 2021\"\n      },\n      {\n        \"landing_page\": \"/store.html\",\n        \"landings\": 13965,\n        \"saw_product_pct\": 9.79,\n        \"saw_product_when_reached_from_inside_pct\": 25.75,\n        \"first_visit_pct\": 86.97,\n        \"no_channel_tag_pct\": 62.08,\n        \"diagnosis\": \"entry traffic\"\n      },\n      {\n        \"landing_page\": \"/Google+Redesign/Lifestyle/Drinkware\",\n        \"landings\": 4939,\n        \"saw_product_pct\": 9.39,\n        \"saw_product_when_reached_from_inside_pct\": 35.23,\n        \"first_visit_pct\": 69.75,\n        \"no_channel_tag_pct\": 74.77,\n        \"diagnosis\": \"entry traffic\"\n      }\n    ],\n    \"diagnosis_rules\": \"tracking = a dated run of weeks with almost no view_item while visitors behave as usual (a measurement gap, not lost views \\u2014 left out of the sizing); page = visitors fail to see products whether they land or arrive from inside; entry traffic = the page works for visitors who reach it from inside the site, but landing visitors leave at once.\",\n    \"total_landings\": 76426,\n    \"extra_product_viewing_sessions_at_site_rate\": 8731,\n    \"note\": \"Each page's cause is diagnosed (see diagnosis); what sends the low-intent landing traffic to the entry-traffic pages is not known.\"\n  },\n  \"retention_trend\": {\n    \"week1_return_by_cohort_month_pct\": {\n      \"Nov\": [\n        5.0,\n        6.7\n      ],\n      \"Dec\": [\n        2.4,\n        3.3\n      ],\n      \"Jan\": [\n        3.1,\n        4.1\n      ]\n    },\n    \"from_month\": \"Nov\",\n    \"to_month\": \"Dec\",\n    \"pooled_rate_pct\": [\n      5.74,\n      2.85\n    ],\n    \"to_month_rate_at_from_month_channel_mix_pct\": 3.06,\n    \"share_of_change_explained_by_channel_mix_pct\": 7.24,\n    \"channels_where_return_fell\": \"6 of 6\",\n    \"note\": \"Channel = the session medium of each user's first session. If the mix explains little, the fall happened within channels: a seasonal effect, not lower-intent traffic. The data cannot separate one-off gift buyers from holiday timing.\"\n  },\n  \"page_recommendations\": [\n    {\n      \"priority\": 1,\n      \"action\": \"fix discovery on the weak landing pages; size only the ones that are not tracking gaps (landing_pages)\",\n      \"orders\": 253,\n      \"revenue_range_usd\": [\n        9004,\n        18008\n      ],\n      \"assumption\": \"added product-viewing sessions convert at 50-100% of today's saw-to-purchase rate\"\n    },\n    {\n      \"priority\": 2,\n      \"action\": \"cart recovery and re-engagement for identifiable users\",\n      \"cart_recovery_orders\": 505,\n      \"cart_recovery_revenue_usd\": 35945,\n      \"re_engagement_revenue_range_usd\": [\n        2563,\n        11999\n      ],\n      \"assumption\": \"10% of abandoned carts reach checkout (planning assumption); Week-1 return at the 8% planning target\"\n    },\n    {\n      \"priority\": 3,\n      \"action\": \"audit the listings of Bags, Women's, Men's / Unisex\",\n      \"orders\": 193,\n      \"revenue_range_usd\": [\n        6869,\n        13738\n      ],\n      \"assumption\": \"added carts behave like today's carts (upper end)\"\n    }\n  ],\n  \"post_intent_losses\": {\n    \"cart_to_checkout_pct\": 35.0,\n    \"cart_abandonment_pct\": 65.0,\n    \"carting_sessions\": 14870,\n    \"carting_sessions_that_never_begin_checkout\": 9665,\n    \"checkout_to_purchase_pct\": 52.28\n  },\n  \"data_quality\": {\n    \"unattributed_sessions_pct\": 26.18,\n    \"unattributed_saw_product_pct\": 6.68,\n    \"attributed_saw_product_pct\": 26.36,\n    \"share_of_discovery_loss_in_unattributed_pct\": 31.0,\n    \"unattributed_interpretation\": \"short sessions missing the medium tag, not bots and not a channel: at matched session length their view rate is close to attributed sessions. All sessions remain the primary view.\",\n    \"view_item_events_with_multiple_products_pct\": 60.39,\n    \"view_item_interpretation\": \"view_item is a list impression here, so 'saw products' \\u2014 not 'viewed a product page'. Do not make product-detail-page claims.\"\n  },\n  \"new_vs_returning\": {\n    \"definition\": \"new = ga_session_number 1 (first session ever for that cookie); otherwise returning\",\n    \"rows\": {\n      \"new\": {\n        \"sessions\": 257400.0,\n        \"saw_product_pct\": 19.8,\n        \"saw_to_cart_pct\": 17.03,\n        \"cart_to_checkout_pct\": 29.78,\n        \"checkout_to_purchase_pct\": 41.56,\n        \"session_to_purchase_pct\": 0.42,\n        \"revenue_per_session\": 0.27,\n        \"purchase_ci_lo\": 0.39,\n        \"purchase_ci_hi\": 0.44\n      },\n      \"returning\": {\n        \"sessions\": 97457.0,\n        \"saw_product_pct\": 24.94,\n        \"saw_to_cart_pct\": 25.48,\n        \"cart_to_checkout_pct\": 42.32,\n        \"checkout_to_purchase_pct\": 62.84,\n        \"session_to_purchase_pct\": 1.69,\n        \"revenue_per_session\": 1.27,\n        \"purchase_ci_lo\": 1.61,\n        \"purchase_ci_hi\": 1.77\n      }\n    },\n    \"returning_to_new_purchase_rate_ratio\": 4.05,\n    \"chi_square_p\": \"p < 0.001\",\n    \"rec2_extra_returning_users_at_8pct_target\": 9444,\n    \"rec2_revenue_range_usd\": [\n      2562.9,\n      11999.17\n    ],\n    \"note\": \"Returning sessions convert better partly through self-selection (keener users come back unprompted), so the returning rate is an upper bound for re-engaged users. Do not claim that bringing users back will multiply their conversion by the ratio.\"\n  },\n  \"significance\": {\n    \"device_purchase_chi_square\": {\n      \"p\": \"p = 0.259\",\n      \"cramers_v\": 0.0028,\n      \"verdict\": \"not significant\"\n    },\n    \"device_purchase_ci95_pct\": {\n      \"desktop\": [\n        0.71,\n        0.78\n      ],\n      \"mobile\": [\n        0.75,\n        0.84\n      ],\n      \"tablet\": [\n        0.6,\n        0.99\n      ]\n    },\n    \"channel_saw_product_chi_square\": {\n      \"p\": \"p < 0.001\",\n      \"cramers_v\": 0.069\n    },\n    \"note\": \"The channel spread is statistically significant (large samples) but the site-vs-traffic verdict is about practical size \\u2014 the 10pp threshold \\u2014 not significance.\"\n  },\n  \"computed_verdicts\": {\n    \"primary_leak\": \"Discovery. The largest absolute loss is between 1. Session Start and 2. View Products (279,596 sessions); 21.2% of sessions saw any product.\",\n    \"saw_to_cart\": \"19.8% of sessions that saw products added one to cart. This is a separate problem from discovery and it depends on the category.\",\n    \"categories\": \"6 of 12 ranked product-type listing pages sit below the 22.1% product-type average with 95% confidence. The top 3 by carts at stake are Bags, Women's, Men's / Unisex (1,054 carts at stake together, of 1,635 across all flagged pages). Rows are listing pages, not product categories; pages marked 'neutral' are not underperforming.\",\n    \"cart_abandonment\": \"65% of carting sessions never begin checkout \\u2014 the largest loss after a shopper shows purchase intent.\",\n    \"checkout\": \"52.3% of sessions that begin checkout complete a purchase. Nothing in the data compares this with another store or period: do not call checkout efficient, lean or broken.\",\n    \"channel\": \"borderline \\u2014 leaning 'the leak is on the site', but close to the threshold; review cpc landing pages before a navigation redesign (spread 8.7pp against the 10pp analyst-set threshold). The spread is statistically significant (p < 0.001) but small; the verdict rests on practical size. Do not attribute the discovery loss to traffic quality.\",\n    \"device\": \"Device does not change the purchase rate (p = 0.259); intervals overlap.\",\n    \"retention\": \"Average Week-1 return is 4.2% against an 8% planning target \\u2014 an analyst assumption, not an industry benchmark. It fell from 5.7% (Nov cohorts) to 2.9% (Dec); the channel mix explains 7% of the fall, so it is a seasonal fall within channels, not a change in traffic mix.\",\n    \"landing_pages\": \"4 landing pages take 76,426 landings and show a product to far fewer of them than the site's 21.2%. Diagnosis: /Google+Redesign/Apparel = entry traffic; /Google+Redesign/Apparel/Google+Dino+Game+Tee = tracking; /store.html = entry traffic; /Google+Redesign/Lifestyle/Drinkware = entry traffic. Entry-traffic pages work for visitors who reach them from inside the site; a tracking page is a measurement gap, not lost views. Do not say any page is broken or out of stock. The action for entry-traffic pages is about the traffic, not the page: find what sends the untagged landing visitors (links without UTM tags first, then search results that do not match the page) and send that traffic to pages that hold visitors. Do not recommend redesigning, re-architecting or fixing the navigation of these pages. The action for a tracking page is an alert on a page's view_item rate, not a page change.\",\n    \"new_vs_returning\": \"Returning sessions buy at 4.1x the new-session rate; part of that is self-selection, so it is not the effect of bringing someone back.\",\n    \"unattributed\": \"'(not set)' sessions (26.2% of sessions, 31% of the discovery loss) are short sessions missing the medium tag \\u2014 not bots, not a channel, not broken landing pages.\"\n  },\n  \"known_confounders\": [\n    {\n      \"applies_to\": \"category seen \\u2192 carted rates\",\n      \"confounder\": \"price\",\n      \"evidence\": \"Rank correlation of category median listed price with the rate: -0.39 (p = 0.205). Too weak to explain the ranking on its own, but not ruled out \\u2014 cheap items are an easier yes.\"\n    },\n    {\n      \"applies_to\": \"category seen \\u2192 carted rates\",\n      \"confounder\": \"price (by item)\",\n      \"evidence\": \"Seen \\u2192 carted by the item's own price band: under $10 8.9%, $10\\u201320 12.2%, $20\\u201330 8.0%, $30\\u201350 6.3%, $50+ 6.8%.\"\n    },\n    {\n      \"applies_to\": \"landing pages that rarely show a product\",\n      \"confounder\": \"who lands there\",\n      \"evidence\": \"Most landings on the entry-traffic pages are very short untagged sessions; if many are automated or accidental visits, the reachable opportunity is smaller than sized.\"\n    },\n    {\n      \"applies_to\": \"category seen \\u2192 carted rates\",\n      \"confounder\": \"listing composition\",\n      \"evidence\": \"'Saw' means a product appeared in a viewed list. Categories that appear in broad, mixed lists are 'seen' by less interested sessions than categories with their own focused listing.\"\n    },\n    {\n      \"applies_to\": \"new vs returning\",\n      \"confounder\": \"self-selection\",\n      \"evidence\": \"Users who return unprompted were keener to begin with.\"\n    },\n    {\n      \"applies_to\": \"discovery loss\",\n      \"confounder\": \"very short, untagged sessions\",\n      \"evidence\": \"31% of the loss is in short sessions without a channel tag; their intent is unknown.\"\n    },\n    {\n      \"applies_to\": \"all purchase and revenue metrics\",\n      \"confounder\": \"session-scoped sequential funnel\",\n      \"evidence\": \"Purchases whose cart was filled in an earlier session are not counted.\"\n    },\n    {\n      \"applies_to\": \"everything\",\n      \"confounder\": \"obfuscated public sample\",\n      \"evidence\": \"Some values are masked or deleted; findings need validation on production data.\"\n    }\n  ]\n}",
+  "context": {
+    "session_funnel": [
+      {
+        "step": "1. Session Start",
+        "sessions": 354857,
+        "step_conversion_pct": null,
+        "overall_conversion_pct": 100.0,
+        "drop_off_pct": null
+      },
+      {
+        "step": "2. View Products",
+        "sessions": 75261,
+        "step_conversion_pct": 21.2,
+        "overall_conversion_pct": 21.2,
+        "drop_off_pct": 78.8
+      },
+      {
+        "step": "3. Add to Cart",
+        "sessions": 14870,
+        "step_conversion_pct": 19.8,
+        "overall_conversion_pct": 4.2,
+        "drop_off_pct": 80.2
+      },
+      {
+        "step": "4. Begin Checkout",
+        "sessions": 5205,
+        "step_conversion_pct": 35.0,
+        "overall_conversion_pct": 1.5,
+        "drop_off_pct": 65.0
+      },
+      {
+        "step": "5. Purchase",
+        "sessions": 2721,
+        "step_conversion_pct": 52.3,
+        "overall_conversion_pct": 0.8,
+        "drop_off_pct": 47.7
+      }
+    ],
+    "revenue": {
+      "funnel_purchases": 2721,
+      "orders_with_revenue_recorded": 2461,
+      "total_revenue_usd": 193678.0,
+      "avg_order_value_usd": 78.7,
+      "revenue_per_funnel_purchase_usd": 71.18,
+      "median_order_value_usd": 55.0,
+      "all_purchasing_sessions_incl_non_sequential": 4848,
+      "all_recorded_revenue_usd": 362165.0,
+      "purchasing_sessions_outside_sequential_funnel": 2127,
+      "purchasing_sessions_without_add_to_cart_in_session": 2000,
+      "note": "AOV averages only orders with revenue recorded; use revenue_per_funnel_purchase for sizing. Funnel revenue covers sequential sessions only — most other purchasing sessions have no add_to_cart in the same session (cart filled in an earlier visit)."
+    },
+    "purchase_rate_by_device": [
+      {
+        "device": "desktop",
+        "sessions": 1537,
+        "pct_of_device_sessions": 0.75
+      },
+      {
+        "device": "mobile",
+        "sessions": 1123,
+        "pct_of_device_sessions": 0.8
+      },
+      {
+        "device": "tablet",
+        "sessions": 61,
+        "pct_of_device_sessions": 0.77
+      }
+    ],
+    "median_minutes_between_steps_converters_only": {
+      "session_to_view_products": 1.0,
+      "view_products_to_add_to_cart": 0.3,
+      "add_to_cart_to_checkout": 6.7,
+      "checkout_to_purchase": 3.3,
+      "total_session_to_purchase": 15.7,
+      "carting_sessions_with_identical_view_and_cart_timestamp_pct": 14.9,
+      "note": "Describes converting sessions only — says nothing about why carts are abandoned. Identical view/cart timestamps are a tracking signal (listing quick-add), not evidence that shoppers are decisive."
+    },
+    "shoppers_funnel": {
+      "note": "Funnel starting at view_item — removes sessions that never saw a product. Both rates share a numerator; their ratio only restates the discovery loss and says nothing about product presentation.",
+      "add_to_cart_rate_from_all_sessions_pct": 4.2,
+      "add_to_cart_rate_from_product_viewers_pct": 19.7
+    },
+    "cohort_retention": {
+      "avg_week1_return_pct": 4.23,
+      "avg_week2_return_pct": 1.89,
+      "definition": "Week-1 return = share of a weekly cohort with any session in the next Monday-anchored calendar week (a 1-13 day window) — not D7 retention.",
+      "planning_target_pct": 8.0,
+      "planning_target_note": "an analyst assumption, not an external benchmark",
+      "note": "% of users with any session in week N after their acquisition week; full cohorts only, right-censored weeks excluded. Measures return visits, not purchases: it cannot show whether buyers decided in one session or researched across sessions (cross-device and cleared cookies also look like non-returns)."
+    },
+    "funnel_by_channel": {
+      "channel_definition": "session_medium",
+      "view_item_spread_pp": 8.71,
+      "decision_rule": "10pp spread in view_item_pct = traffic-quality problem; 7-10pp = borderline; below 7pp = site problem. The 10pp threshold is an analyst-set assumption.",
+      "verdict": "borderline — leaning 'the leak is on the site', but close to the threshold; review cpc landing pages before a navigation redesign",
+      "note": "low_purchase_volume=True means fewer than 30 purchases: purchase_pct and revenue_per_session are too noisy to rank or act on. view_item_pct rests on session counts and is reliable. '(not set)' sessions carry no session-level medium and are excluded from the spread; they are short sessions missing the tag, not a channel (see data_quality). '(none)' = direct traffic.",
+      "rows": [
+        {
+          "channel": "organic",
+          "sessions": 102788,
+          "view_item_pct": 26.32,
+          "purchase_pct": 0.9,
+          "revenue_per_session_usd": 0.58,
+          "low_purchase_volume": false
+        },
+        {
+          "channel": "(not set)",
+          "sessions": 92892,
+          "view_item_pct": 6.68,
+          "purchase_pct": 0.0,
+          "revenue_per_session_usd": 0.0,
+          "low_purchase_volume": true
+        },
+        {
+          "channel": "referral",
+          "sessions": 80725,
+          "view_item_pct": 30.28,
+          "purchase_pct": 1.72,
+          "revenue_per_session_usd": 1.28,
+          "low_purchase_volume": false
+        },
+        {
+          "channel": "(none)",
+          "sessions": 37670,
+          "view_item_pct": 22.68,
+          "purchase_pct": 0.48,
+          "revenue_per_session_usd": 0.38,
+          "low_purchase_volume": false
+        },
+        {
+          "channel": "<Other>",
+          "sessions": 25302,
+          "view_item_pct": 22.16,
+          "purchase_pct": 0.26,
+          "revenue_per_session_usd": 0.21,
+          "low_purchase_volume": false
+        },
+        {
+          "channel": "cpc",
+          "sessions": 7664,
+          "view_item_pct": 21.57,
+          "purchase_pct": 0.37,
+          "revenue_per_session_usd": 0.26,
+          "low_purchase_volume": true
+        },
+        {
+          "channel": "(data deleted)",
+          "sessions": 6315,
+          "view_item_pct": 23.04,
+          "purchase_pct": 1.73,
+          "revenue_per_session_usd": 1.12,
+          "low_purchase_volume": false
+        },
+        {
+          "channel": "other (2 small channels)",
+          "sessions": 1501,
+          "view_item_pct": 19.92,
+          "purchase_pct": 1.33,
+          "revenue_per_session_usd": 1.17,
+          "low_purchase_volume": true
+        }
+      ]
+    },
+    "category_view_to_cart": {
+      "what_a_row_is": "A listing page a product was shown in, not a product category: 414 of 420 products appear under more than one item_category. Only product-type pages are ranked; brand, collection and parent pages mix product types and are listed separately in other_pages, unranked.",
+      "product_type_average_pct": 22.06,
+      "metric_definition": "seen_to_carted_pct = of sessions in which a product from this listing page appeared in a viewed product list (view_item is list-level in this export), the % that then carted an item from it (the carted item only, quantity > 0). It is evidence about how products convert from listings, not about product detail pages.",
+      "note": "carts_at_stake = extra carting sessions if the page converted at the product-type average (pooled rate across ranked product-type pages — internal, not an external benchmark). Counted only for pages whose whole 95% interval is below the average (vs_average='below'); 'neutral' pages cannot be distinguished from average and must not be called underperforming. About one flag in 20 may be chance.",
+      "other_pages": [
+        {
+          "page": "YouTube",
+          "level": "brand",
+          "viewing_sessions": 4754,
+          "seen_to_carted_pct": 15.59
+        },
+        {
+          "page": "Google",
+          "level": "brand",
+          "viewing_sessions": 3234,
+          "seen_to_carted_pct": 12.99
+        },
+        {
+          "page": "Android",
+          "level": "brand",
+          "viewing_sessions": 874,
+          "seen_to_carted_pct": 17.73
+        },
+        {
+          "page": "Sale",
+          "level": "collection",
+          "viewing_sessions": 9763,
+          "seen_to_carted_pct": 16.99
+        },
+        {
+          "page": "New",
+          "level": "collection",
+          "viewing_sessions": 5335,
+          "seen_to_carted_pct": 16.66
+        },
+        {
+          "page": "Eco-Friendly",
+          "level": "collection",
+          "viewing_sessions": 3725,
+          "seen_to_carted_pct": 13.29
+        },
+        {
+          "page": "Campus Collection",
+          "level": "collection",
+          "viewing_sessions": 3142,
+          "seen_to_carted_pct": 22.15
+        },
+        {
+          "page": "Apparel",
+          "level": "parent",
+          "viewing_sessions": 6548,
+          "seen_to_carted_pct": 14.05
+        },
+        {
+          "page": "Lifestyle",
+          "level": "parent",
+          "viewing_sessions": 2755,
+          "seen_to_carted_pct": 14.08
+        },
+        {
+          "page": "Stationery",
+          "level": "parent",
+          "viewing_sessions": 2237,
+          "seen_to_carted_pct": 22.93
+        },
+        {
+          "page": "Shop by Brand",
+          "level": "parent",
+          "viewing_sessions": 798,
+          "seen_to_carted_pct": 15.41
+        }
+      ],
+      "rows": [
+        {
+          "category": "Bags",
+          "viewing_sessions": 4796,
+          "seen_to_carted_pct": 13.64,
+          "ci95_pct": [
+            12.69,
+            14.64
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 12.0,
+          "carts_at_stake": 404
+        },
+        {
+          "category": "Women's",
+          "viewing_sessions": 4778,
+          "seen_to_carted_pct": 15.09,
+          "ci95_pct": [
+            14.1,
+            16.13
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 29.0,
+          "carts_at_stake": 333
+        },
+        {
+          "category": "Men's / Unisex",
+          "viewing_sessions": 13672,
+          "seen_to_carted_pct": 19.74,
+          "ci95_pct": [
+            19.08,
+            20.42
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 37.0,
+          "carts_at_stake": 317
+        },
+        {
+          "category": "Small Goods",
+          "viewing_sessions": 3951,
+          "seen_to_carted_pct": 15.49,
+          "ci95_pct": [
+            14.4,
+            16.65
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 10.0,
+          "carts_at_stake": 259
+        },
+        {
+          "category": "Drinkware",
+          "viewing_sessions": 5382,
+          "seen_to_carted_pct": 18.45,
+          "ci95_pct": [
+            17.44,
+            19.51
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 24.0,
+          "carts_at_stake": 194
+        },
+        {
+          "category": "Men's T-Shirts",
+          "viewing_sessions": 1810,
+          "seen_to_carted_pct": 14.97,
+          "ci95_pct": [
+            13.4,
+            16.69
+          ],
+          "vs_average": "below",
+          "median_listed_price_usd": 25.0,
+          "carts_at_stake": 128
+        },
+        {
+          "category": "Kids",
+          "viewing_sessions": 2966,
+          "seen_to_carted_pct": 21.24,
+          "ci95_pct": [
+            19.81,
+            22.75
+          ],
+          "vs_average": "neutral",
+          "median_listed_price_usd": 24.0,
+          "carts_at_stake": 0
+        },
+        {
+          "category": "Notebooks",
+          "viewing_sessions": 2010,
+          "seen_to_carted_pct": 27.26,
+          "ci95_pct": [
+            25.36,
+            29.25
+          ],
+          "vs_average": "above",
+          "median_listed_price_usd": 13.0,
+          "carts_at_stake": 0
+        },
+        {
+          "category": "Socks",
+          "viewing_sessions": 1018,
+          "seen_to_carted_pct": 30.35,
+          "ci95_pct": [
+            27.61,
+            33.25
+          ],
+          "vs_average": "above",
+          "median_listed_price_usd": 17.0,
+          "carts_at_stake": 0
+        },
+        {
+          "category": "Stickers",
+          "viewing_sessions": 1583,
+          "seen_to_carted_pct": 32.34,
+          "ci95_pct": [
+            30.08,
+            34.69
+          ],
+          "vs_average": "above",
+          "median_listed_price_usd": 3.0,
+          "carts_at_stake": 0
+        },
+        {
+          "category": "Writing",
+          "viewing_sessions": 976,
+          "seen_to_carted_pct": 37.91,
+          "ci95_pct": [
+            34.92,
+            41.0
+          ],
+          "vs_average": "above",
+          "median_listed_price_usd": 3.0,
+          "carts_at_stake": 0
+        },
+        {
+          "category": "Hats",
+          "viewing_sessions": 6226,
+          "seen_to_carted_pct": 40.57,
+          "ci95_pct": [
+            39.36,
+            41.8
+          ],
+          "vs_average": "above",
+          "median_listed_price_usd": 17.0,
+          "carts_at_stake": 0
+        }
+      ]
+    },
+    "price_bands": {
+      "note": "seen_to_carted_pct by the item's own price, same rule as the listing pages. A session sees items in several bands, so bands are not additive.",
+      "chi_square_p": "p < 0.001",
+      "rows": [
+        {
+          "band": "under $10",
+          "viewing_sessions": 37919,
+          "seen_to_carted_pct": 8.9
+        },
+        {
+          "band": "$10–20",
+          "viewing_sessions": 48487,
+          "seen_to_carted_pct": 12.15
+        },
+        {
+          "band": "$20–30",
+          "viewing_sessions": 55218,
+          "seen_to_carted_pct": 7.99
+        },
+        {
+          "band": "$30–50",
+          "viewing_sessions": 44177,
+          "seen_to_carted_pct": 6.32
+        },
+        {
+          "band": "$50+",
+          "viewing_sessions": 39694,
+          "seen_to_carted_pct": 6.83
+        }
+      ]
+    },
+    "landing_pages": {
+      "rule": "pages with at least 1% of sessions as landings and a saw-a-product rate at least 5pp under the site's 21.2%",
+      "pages": [
+        {
+          "landing_page": "/Google+Redesign/Apparel",
+          "landings": 39092,
+          "saw_product_pct": 8.87,
+          "saw_product_when_reached_from_inside_pct": 28.13,
+          "first_visit_pct": 92.86,
+          "no_channel_tag_pct": 59.73,
+          "diagnosis": "entry traffic"
+        },
+        {
+          "landing_page": "/Google+Redesign/Apparel/Google+Dino+Game+Tee",
+          "landings": 18430,
+          "saw_product_pct": 11.84,
+          "saw_product_when_reached_from_inside_pct": 29.3,
+          "first_visit_pct": 96.51,
+          "no_channel_tag_pct": 2.19,
+          "diagnosis": "tracking",
+          "tracking_gap": "view_item silent 30 Nov 2020 to 17 Jan 2021"
+        },
+        {
+          "landing_page": "/store.html",
+          "landings": 13965,
+          "saw_product_pct": 9.79,
+          "saw_product_when_reached_from_inside_pct": 25.75,
+          "first_visit_pct": 86.97,
+          "no_channel_tag_pct": 62.08,
+          "diagnosis": "entry traffic"
+        },
+        {
+          "landing_page": "/Google+Redesign/Lifestyle/Drinkware",
+          "landings": 4939,
+          "saw_product_pct": 9.39,
+          "saw_product_when_reached_from_inside_pct": 35.23,
+          "first_visit_pct": 69.75,
+          "no_channel_tag_pct": 74.77,
+          "diagnosis": "entry traffic"
+        }
+      ],
+      "diagnosis_rules": "tracking = a dated run of weeks with almost no view_item while visitors behave as usual (a measurement gap, not lost views — left out of the sizing); page = visitors fail to see products whether they land or arrive from inside; entry traffic = the page works for visitors who reach it from inside the site, but landing visitors leave at once.",
+      "total_landings": 76426,
+      "extra_product_viewing_sessions_at_site_rate": 8731,
+      "note": "Each page's cause is diagnosed (see diagnosis); what sends the low-intent landing traffic to the entry-traffic pages is not known."
+    },
+    "retention_trend": {
+      "week1_return_by_cohort_month_pct": {
+        "Nov": [
+          5.0,
+          6.7
+        ],
+        "Dec": [
+          2.4,
+          3.3
+        ],
+        "Jan": [
+          3.1,
+          4.1
+        ]
+      },
+      "from_month": "Nov",
+      "to_month": "Dec",
+      "pooled_rate_pct": [
+        5.74,
+        2.85
+      ],
+      "to_month_rate_at_from_month_channel_mix_pct": 3.06,
+      "share_of_change_explained_by_channel_mix_pct": 7.24,
+      "channels_where_return_fell": "6 of 6",
+      "note": "Channel = the session medium of each user's first session. If the mix explains little, the fall happened within channels: a seasonal effect, not lower-intent traffic. The data cannot separate one-off gift buyers from holiday timing."
+    },
+    "page_recommendations": [
+      {
+        "priority": 1,
+        "action": "fix discovery on the weak landing pages; size only the ones that are not tracking gaps (landing_pages)",
+        "orders": 253,
+        "revenue_range_usd": [
+          9004,
+          18008
+        ],
+        "assumption": "added product-viewing sessions convert at 50-100% of today's saw-to-purchase rate"
+      },
+      {
+        "priority": 2,
+        "action": "cart recovery and re-engagement for identifiable users",
+        "cart_recovery_orders": 505,
+        "cart_recovery_revenue_usd": 35945,
+        "re_engagement_revenue_range_usd": [
+          2563,
+          11999
+        ],
+        "assumption": "10% of abandoned carts reach checkout (planning assumption); Week-1 return at the 8% planning target"
+      },
+      {
+        "priority": 3,
+        "action": "audit the listings of Bags, Women's, Men's / Unisex",
+        "orders": 193,
+        "revenue_range_usd": [
+          6869,
+          13738
+        ],
+        "assumption": "added carts behave like today's carts (upper end)"
+      }
+    ],
+    "post_intent_losses": {
+      "cart_to_checkout_pct": 35.0,
+      "cart_abandonment_pct": 65.0,
+      "carting_sessions": 14870,
+      "carting_sessions_that_never_begin_checkout": 9665,
+      "checkout_to_purchase_pct": 52.28
+    },
+    "data_quality": {
+      "unattributed_sessions_pct": 26.18,
+      "unattributed_saw_product_pct": 6.68,
+      "attributed_saw_product_pct": 26.36,
+      "share_of_discovery_loss_in_unattributed_pct": 31.0,
+      "unattributed_interpretation": "short sessions missing the medium tag, not bots and not a channel: at matched session length their view rate is close to attributed sessions. All sessions remain the primary view.",
+      "view_item_events_with_multiple_products_pct": 60.39,
+      "view_item_interpretation": "view_item is a list impression here, so 'saw products' — not 'viewed a product page'. Do not make product-detail-page claims."
+    },
+    "new_vs_returning": {
+      "definition": "new = ga_session_number 1 (first session ever for that cookie); otherwise returning",
+      "rows": {
+        "new": {
+          "sessions": 257400.0,
+          "saw_product_pct": 19.8,
+          "saw_to_cart_pct": 17.03,
+          "cart_to_checkout_pct": 29.78,
+          "checkout_to_purchase_pct": 41.56,
+          "session_to_purchase_pct": 0.42,
+          "revenue_per_session": 0.27,
+          "purchase_ci_lo": 0.39,
+          "purchase_ci_hi": 0.44
+        },
+        "returning": {
+          "sessions": 97457.0,
+          "saw_product_pct": 24.94,
+          "saw_to_cart_pct": 25.48,
+          "cart_to_checkout_pct": 42.32,
+          "checkout_to_purchase_pct": 62.84,
+          "session_to_purchase_pct": 1.69,
+          "revenue_per_session": 1.27,
+          "purchase_ci_lo": 1.61,
+          "purchase_ci_hi": 1.77
+        }
+      },
+      "returning_to_new_purchase_rate_ratio": 4.05,
+      "chi_square_p": "p < 0.001",
+      "rec2_extra_returning_users_at_8pct_target": 9444,
+      "rec2_revenue_range_usd": [
+        2562.9,
+        11999.17
+      ],
+      "note": "Returning sessions convert better partly through self-selection (keener users come back unprompted), so the returning rate is an upper bound for re-engaged users. Do not claim that bringing users back will multiply their conversion by the ratio."
+    },
+    "significance": {
+      "device_purchase_chi_square": {
+        "p": "p = 0.259",
+        "cramers_v": 0.0028,
+        "verdict": "not significant"
+      },
+      "device_purchase_ci95_pct": {
+        "desktop": [
+          0.71,
+          0.78
+        ],
+        "mobile": [
+          0.75,
+          0.84
+        ],
+        "tablet": [
+          0.6,
+          0.99
+        ]
+      },
+      "channel_saw_product_chi_square": {
+        "p": "p < 0.001",
+        "cramers_v": 0.069
+      },
+      "note": "The channel spread is statistically significant (large samples) but the site-vs-traffic verdict is about practical size — the 10pp threshold — not significance."
+    },
+    "computed_verdicts": {
+      "primary_leak": "Discovery. The largest absolute loss is between 1. Session Start and 2. View Products (279,596 sessions); 21.2% of sessions saw any product.",
+      "saw_to_cart": "19.8% of sessions that saw products added one to cart. This is a separate problem from discovery and it depends on the category.",
+      "categories": "6 of 12 ranked product-type listing pages sit below the 22.1% product-type average with 95% confidence. The top 3 by carts at stake are Bags, Women's, Men's / Unisex (1,054 carts at stake together, of 1,635 across all flagged pages). Rows are listing pages, not product categories; pages marked 'neutral' are not underperforming.",
+      "cart_abandonment": "65% of carting sessions never begin checkout — the largest loss after a shopper shows purchase intent.",
+      "checkout": "52.3% of sessions that begin checkout complete a purchase. Nothing in the data compares this with another store or period: do not call checkout efficient, lean or broken.",
+      "channel": "borderline — leaning 'the leak is on the site', but close to the threshold; review cpc landing pages before a navigation redesign (spread 8.7pp against the 10pp analyst-set threshold). The spread is statistically significant (p < 0.001) but small; the verdict rests on practical size. Do not attribute the discovery loss to traffic quality.",
+      "device": "Device does not change the purchase rate (p = 0.259); intervals overlap.",
+      "retention": "Average Week-1 return is 4.2% against an 8% planning target — an analyst assumption, not an industry benchmark. It fell from 5.7% (Nov cohorts) to 2.9% (Dec); the channel mix explains 7% of the fall, so it is a seasonal fall within channels, not a change in traffic mix.",
+      "landing_pages": "4 landing pages take 76,426 landings and show a product to far fewer of them than the site's 21.2%. Diagnosis: /Google+Redesign/Apparel = entry traffic; /Google+Redesign/Apparel/Google+Dino+Game+Tee = tracking; /store.html = entry traffic; /Google+Redesign/Lifestyle/Drinkware = entry traffic. Entry-traffic pages work for visitors who reach them from inside the site; a tracking page is a measurement gap, not lost views. Do not say any page is broken or out of stock. The action for entry-traffic pages is about the traffic, not the page: find what sends the untagged landing visitors (links without UTM tags first, then search results that do not match the page) and send that traffic to pages that hold visitors. Do not recommend redesigning, re-architecting or fixing the navigation of these pages. The action for a tracking page is an alert on a page's view_item rate, not a page change.",
+      "new_vs_returning": "Returning sessions buy at 4.1x the new-session rate; part of that is self-selection, so it is not the effect of bringing someone back.",
+      "unattributed": "'(not set)' sessions (26.2% of sessions, 31% of the discovery loss) are short sessions missing the medium tag — not bots, not a channel, not broken landing pages."
+    },
+    "known_confounders": [
+      {
+        "applies_to": "category seen → carted rates",
+        "confounder": "price",
+        "evidence": "Rank correlation of category median listed price with the rate: -0.39 (p = 0.205). Too weak to explain the ranking on its own, but not ruled out — cheap items are an easier yes."
+      },
+      {
+        "applies_to": "category seen → carted rates",
+        "confounder": "price (by item)",
+        "evidence": "Seen → carted by the item's own price band: under $10 8.9%, $10–20 12.2%, $20–30 8.0%, $30–50 6.3%, $50+ 6.8%."
+      },
+      {
+        "applies_to": "landing pages that rarely show a product",
+        "confounder": "who lands there",
+        "evidence": "Most landings on the entry-traffic pages are very short untagged sessions; if many are automated or accidental visits, the reachable opportunity is smaller than sized."
+      },
+      {
+        "applies_to": "category seen → carted rates",
+        "confounder": "listing composition",
+        "evidence": "'Saw' means a product appeared in a viewed list. Categories that appear in broad, mixed lists are 'seen' by less interested sessions than categories with their own focused listing."
+      },
+      {
+        "applies_to": "new vs returning",
+        "confounder": "self-selection",
+        "evidence": "Users who return unprompted were keener to begin with."
+      },
+      {
+        "applies_to": "discovery loss",
+        "confounder": "very short, untagged sessions",
+        "evidence": "31% of the loss is in short sessions without a channel tag; their intent is unknown."
+      },
+      {
+        "applies_to": "all purchase and revenue metrics",
+        "confounder": "session-scoped sequential funnel",
+        "evidence": "Purchases whose cart was filled in an earlier session are not counted."
+      },
+      {
+        "applies_to": "everything",
+        "confounder": "obfuscated public sample",
+        "evidence": "Some values are masked or deleted; findings need validation on production data."
+      }
+    ]
+  }
+}

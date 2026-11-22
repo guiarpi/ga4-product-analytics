@@ -24,9 +24,9 @@ venv/
 # OS
 .DS_Store
 
-# Generated output — run generate_dashboard.py to reproduce locally
-product_brief_ga4_funnel.md
-product_brief_context.json
+# The AI brief (product_brief_ga4_funnel.md) and the exact context it was written
+# from (product_brief_context.json) are TRACKED: the reviewed brief is a deliberate
+# artefact, like dashboard.html, embedded by the scheduled regeneration (E8).
 
 # Private Claude session guide
 CLAUDE.md
