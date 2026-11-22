@@ -382,6 +382,16 @@ def device_funnel_sql(dataset: str, start: str, end: str) -> str:
                       group_by={"device_category": "device_category"}, order_by="sessions DESC, device_category")
 
 
+def country_funnel_sql(dataset: str, start: str, end: str) -> str:
+    """The same funnel, with revenue, by geo.country (E11). geo is per event; a
+    session takes the country of its events (ANY_VALUE — sessions rarely span
+    two). Empty or '(not set)' country is grouped as '(not set)'."""
+    return funnel_sql(dataset, start, end, revenue=True,
+                      event_dims={"country": "NULLIF(NULLIF(geo.country, ''), '(not set)')"},
+                      group_by={"country": "COALESCE(country, '(not set)')"},
+                      order_by="sessions DESC, country")
+
+
 def channel_funnel_sql(dataset: str, start: str, end: str) -> str:
     """The same funnel with revenue, by BOTH the session's own medium and the
     user's first-touch medium (traffic_source.medium), so the grain trap can be

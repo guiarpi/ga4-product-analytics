@@ -104,6 +104,7 @@ def test_multi_row_results_have_a_total_order():
     # notebook tables and the saved brief context between identical runs.
     expected = {
         "device_funnel_sql":   "ORDER BY sessions DESC, device_category",
+        "country_funnel_sql":  "ORDER BY sessions DESC, country",
         "channel_funnel_sql":  "ORDER BY session_medium, first_touch_medium",
         "event_inventory_sql": "ORDER BY event_count DESC, event_name",
         "event_quality_sql":   "ORDER BY event_name DESC",

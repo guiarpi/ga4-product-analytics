@@ -17,6 +17,8 @@ generate_dashboard.py, kept here so they can be unit-tested (tests/).
   landing_diagnosis_sql rows of one page.
 - purchase_path_summary, recovery_curve: cross-session purchase paths and how
   often abandoned carts come back in a later session (E10).
+- segment_spread: is a funnel rate uniform across segments (channels,
+  countries)? Spread, chi-square, Cramér's V and a practical-size verdict.
 """
 
 import pandas as pd
@@ -252,3 +254,35 @@ def recovery_curve(carts: pd.DataFrame, days=(1, 7, 14), checkout=None) -> pd.Da
         rows.append({"days": n, "eligible_carts": m, "recovered": k,
                      "recovered_pct": k / m * 100 if m else float("nan"), "ci_lo": lo, "ci_hi": hi})
     return pd.DataFrame(rows)
+
+
+# ── Segment spread (channels, countries — E11) ───────────────────────────────
+SPREAD_DRIVER_PP = 10      # same practical threshold as the channel verdict
+SPREAD_BORDERLINE_PP = 7
+
+
+def segment_spread(df: pd.DataFrame, segment: str, success: str = "view_item", base: str = "sessions",
+                   min_share: float = 1.0, exclude=("(not set)",)) -> dict:
+    """Is `success / base` uniform across segments? Only segments with at least
+    min_share % of the base (and not in `exclude`, which are not real segments)
+    are compared. Returns the rows compared, the best and worst segment, the
+    spread in points, a chi-square test with Cramér's V, and a verdict on
+    practical size: "driver" (≥ SPREAD_DRIVER_PP), "borderline"
+    (≥ SPREAD_BORDERLINE_PP) or "uniform". Significance alone never decides it:
+    with large samples almost any gap is significant."""
+    from stats_utils import chi_square
+    total = float(df[base].sum())
+    d = df[~df[segment].isin(exclude)].copy()
+    d["share"] = d[base] / total * 100 if total else 0.0
+    d = d[d["share"] >= min_share].copy()
+    d["rate"] = d[success] / d[base] * 100
+    d = d.sort_values(["rate", segment], ascending=[False, True]).reset_index(drop=True)
+    if len(d) < 2:
+        return {"rows": d, "spread_pp": 0.0, "verdict": "too few segments", "test": None, "best": None, "worst": None}
+    spread = float(d["rate"].iloc[0] - d["rate"].iloc[-1])
+    verdict = ("driver" if spread >= SPREAD_DRIVER_PP else
+               "borderline" if spread >= SPREAD_BORDERLINE_PP else "uniform")
+    return {"rows": d, "spread_pp": spread, "verdict": verdict,
+            "test": chi_square(d[success], d[base]),
+            "best": (d[segment].iloc[0], float(d["rate"].iloc[0])),
+            "worst": (d[segment].iloc[-1], float(d["rate"].iloc[-1]))}

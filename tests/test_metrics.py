@@ -192,3 +192,24 @@ def test_recovery_curve_excludes_carts_without_enough_time_left():
     assert (seven["eligible_carts"], seven["recovered"]) == (3, 2)      # the censored cart is left out
     assert recovery_curve(carts, days=(7,), checkout=True).iloc[0]["recovered"] == 1
     assert seven["ci_lo"] < seven["recovered_pct"] < seven["ci_hi"]
+
+
+# ── E11: segment_spread ───────────────────────────────────────────────────────
+from metrics import segment_spread
+
+
+def test_segment_spread_compares_only_real_segments_with_volume():
+    df = pd.DataFrame({"country": ["US", "India", "UK", "(not set)", "Tiny"],
+                       "sessions": [5000, 2000, 1000, 3000, 50],
+                       "view_item": [1250, 300, 220, 30, 40]})
+    s = segment_spread(df, "country")
+    assert list(s["rows"]["country"]) == ["US", "UK", "India"]     # (not set) and <1% left out, best first
+    assert s["best"] == ("US", 25.0) and s["worst"] == ("India", 15.0)
+    assert s["spread_pp"] == 10.0 and s["verdict"] == "driver"
+    assert 0 <= s["test"]["cramers_v"] <= 1
+
+
+def test_segment_spread_verdict_follows_practical_size_not_significance():
+    df = pd.DataFrame({"country": ["A", "B"], "sessions": [500000, 500000], "view_item": [105000, 100000]})
+    s = segment_spread(df, "country")
+    assert s["test"]["p"] < 0.001 and s["verdict"] == "uniform"    # significant, but a 1pp gap
